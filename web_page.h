@@ -8,319 +8,211 @@ const char index_html[] PROGMEM = R"rawliteral(
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>M5 Gait Lab V3</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GaitOS V11</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
-            --bg-color: #121212;
-            --card-bg: #1e1e1e;
-            --text-main: #e0e0e0;
-            --text-muted: #a0a0a0;
-            --accent: #00e5ff;
-            --accent-hover: #00b8d4;
-            --danger: #cf6679;
-            --success: #03dac6;
-            --font-stack: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --bg: #000000;
+            --card: #1c1c1e; /* Apple Dark Gray */
+            --text: #f5f5f7;
+            --text-sub: #86868b;
+            --accent: #0a84ff;   /* iOS Blue */
+            --danger: #ff453a;   /* iOS Red */
+            --struct: #32d74b;   /* iOS Green */
+            --shadow: 0 4px 20px rgba(0,0,0,0.5);
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
-        body {
-            font-family: var(--font-stack);
-            margin: 0;
-            padding: 20px;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            line-height: 1.6;
-        }
-        .container { max-width: 1000px; margin: 0 auto; }
+
+        body { font-family: var(--font); margin: 0; padding: 20px; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+        .container { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+        /* HERO SECTION */
+        .hero { background: var(--card); border-radius: 18px; padding: 20px; box-shadow: var(--shadow); position: relative; overflow: hidden; height: 380px; }
+        .hero-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .hero h2 { margin: 0; font-size: 1.2rem; font-weight: 600; color: var(--text-sub); letter-spacing: 0.5px; text-transform: uppercase; }
         
-        /* Header */
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #333;
-        }
-        h1 { margin: 0; font-weight: 300; letter-spacing: 1px; font-size: 1.8rem; }
-        .header-info { text-align: right; font-size: 0.9rem; color: var(--text-muted); }
-        .status-badge {
-            display: inline-block;
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            background: #333;
-            color: #fff;
-            margin-top: 5px;
-        }
-        .status-badge.recording { background: var(--danger); color: #000; }
+        .status-pill { background: #2c2c2e; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-sub); transition: 0.3s; }
+        .dot.active { background: var(--danger); box-shadow: 0 0 8px var(--danger); animation: pulse 2s infinite; }
         
-        /* Controls */
-        .controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-        button {
-            padding: 15px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #fff;
-        }
-        .btn-primary { background: var(--accent); color: #000; }
-        .btn-primary:hover { background: var(--accent-hover); }
-        .btn-danger { background: var(--danger); color: #000; }
-        .btn-danger:hover { background: #b00020; }
-        .btn-secondary { background: #333; }
-        .btn-secondary:hover { background: #444; }
-        .btn-sm { padding: 5px 10px; font-size: 0.8rem; margin-left: 10px; }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
-        /* Dashboard */
-        .dashboard {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .card {
-            background: var(--card-bg);
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            border: 1px solid #333;
-            text-align: center;
-        }
-        .card h3 { margin: 0 0 10px; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; }
-        .metric-value { font-size: 2.5rem; font-weight: 700; color: var(--accent); }
-        .metric-unit { font-size: 1rem; color: var(--text-muted); }
+        /* METRICS STRIP */
+        .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+        @media(max-width: 600px) { .metrics { grid-template-columns: 1fr 1fr; } }
+        
+        .metric { background: var(--card); border-radius: 18px; padding: 15px; text-align: center; box-shadow: var(--shadow); }
+        .metric-label { font-size: 0.75rem; color: var(--text-sub); text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }
+        .metric-val { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.5px; }
+        .metric-unit { font-size: 0.9rem; color: var(--text-sub); font-weight: 500; }
 
-        /* Charts */
-        .charts-container {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 20px;
-            margin-bottom: 30px;
+        /* CONTROLS */
+        .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+        button { 
+            background: var(--card); color: var(--text); border: none; padding: 16px; 
+            border-radius: 14px; font-size: 1rem; font-weight: 600; cursor: pointer; 
+            transition: all 0.2s; box-shadow: var(--shadow);
         }
-        @media (min-width: 768px) { .charts-container { grid-template-columns: 1fr 1fr; } }
-        .chart-wrapper {
-            background: var(--card-bg);
-            padding: 15px;
-            border-radius: 12px;
-            height: 300px;
-            border: 1px solid #333;
-        }
+        button:active { transform: scale(0.98); }
+        .btn-main { background: var(--accent); color: white; }
+        .btn-stop { background: var(--danger); color: white; opacity: 0.5; pointer-events: none; }
+        .btn-stop.active { opacity: 1; pointer-events: auto; }
 
-        /* Logs */
-        .logs-section {
-            background: var(--card-bg);
-            padding: 20px;
-            border-radius: 12px;
-            border: 1px solid #333;
-        }
-        .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .log-list { list-style: none; padding: 0; max-height: 300px; overflow-y: auto; }
-        .log-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px;
-            border-bottom: 1px solid #333;
-            color: var(--text-muted);
-        }
-        .log-item:last-child { border-bottom: none; }
-        .log-item a { color: var(--accent); text-decoration: none; font-weight: 500; }
-        .log-item a:hover { text-decoration: underline; }
-        .log-actions { display: flex; gap: 10px; align-items: center; }
+        /* LOGS */
+        .logs-box { background: var(--card); border-radius: 18px; padding: 20px; box-shadow: var(--shadow); min-height: 150px; }
+        .logs-header { display: flex; justify-content: space-between; margin-bottom: 15px; font-weight: 600; color: var(--text-sub); }
+        .log-item { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #2c2c2e; font-size: 0.9rem; align-items: center; }
+        .log-item:last-child { border: none; }
+        .log-actions a { color: var(--accent); text-decoration: none; margin-left: 15px; font-weight: 500; }
+        
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>M5 Gait Lab V3</h1>
-            <div class="header-info">
-                <div>Bat: <span id="bat-level">--</span>%</div>
-                <div id="status-badge" class="status-badge">Idle</div>
-            </div>
-        </header>
 
-        <div class="controls">
-            <button id="btn-start" class="btn-primary" onclick="startRecording()">Start Rec</button>
-            <button id="btn-stop" class="btn-danger" onclick="stopRecording()" disabled>Stop Rec</button>
-            <button class="btn-secondary" onclick="calibrate()">Calibrate</button>
-            <button class="btn-secondary" onclick="fetchLogs()">Refresh Logs</button>
+<div class="container">
+    <div class="hero">
+        <div class="hero-header">
+            <h2>Gait Trajectory (Z vs X)</h2>
+            <div class="status-pill"><div id="rec-dot" class="dot"></div> <span id="status-text">IDLE</span></div>
         </div>
+        <canvas id="chart-main"></canvas>
+    </div>
 
-        <div class="dashboard">
-            <div class="card">
-                <h3>Cadence</h3>
-                <div><span class="metric-value" id="val-cad">0.0</span> <span class="metric-unit">spm</span></div>
-            </div>
-            <div class="card">
-                <h3>Speed</h3>
-                <div><span class="metric-value" id="val-spd">0.00</span> <span class="metric-unit">m/s</span></div>
-            </div>
-            <div class="card">
-                <h3>Limp Index</h3>
-                <div><span class="metric-value" id="val-limp">0.000</span> <span class="metric-unit">idx</span></div>
-            </div>
-            <div class="card">
-                <h3>Steps</h3>
-                <div><span class="metric-value" id="val-steps">0</span></div>
-            </div>
+    <div class="metrics">
+        <div class="metric">
+            <div class="metric-label">Steps</div>
+            <div class="metric-val" id="m-steps">0</div>
         </div>
-
-        <div class="charts-container">
-            <div class="chart-wrapper"><canvas id="chart-pitch"></canvas></div>
-            <div class="chart-wrapper"><canvas id="chart-accel"></canvas></div>
+        <div class="metric">
+            <div class="metric-label">Distance</div>
+            <div class="metric-val"><span id="m-dist">0.0</span> <span class="metric-unit">m</span></div>
         </div>
-
-        <div class="logs-section">
-            <div class="log-header">
-                <h3 style="margin:0; color:var(--text-muted);">Data Logs</h3>
-                <button class="btn-danger btn-sm" onclick="formatStorage()">Format Storage</button>
-            </div>
-            <ul id="log-list" class="log-list"><li style="padding:10px;">Loading...</li></ul>
+        <div class="metric">
+            <div class="metric-label">Clearance</div>
+            <div class="metric-val" style="color:var(--struct)"><span id="m-clear">0.0</span> <span class="metric-unit">cm</span></div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Pitch</div>
+            <div class="metric-val" style="color:var(--accent)"><span id="m-pitch">0</span><span class="metric-unit">°</span></div>
         </div>
     </div>
 
-    <script>
-        const MAX_POINTS = 100;
-        let isRecording = false;
+    <div class="controls">
+        <button id="btn-rec" class="btn-main" onclick="record(true)">Record</button>
+        <button id="btn-stop" class="btn-stop" onclick="record(false)">Stop</button>
+        <button onclick="api('calibrate')">Zero Sensors</button>
+    </div>
 
-        // Chart Config
-        Chart.defaults.color = '#a0a0a0';
-        Chart.defaults.borderColor = '#333';
-        const commonOptions = {
+    <!-- Hidden Logs, toggle visibility? No, just list last 3 -->
+    <div class="logs-box">
+        <div class="logs-header">
+            <span>RECENT SESSIONS</span>
+            <span style="font-size:0.8rem; cursor:pointer;" onclick="fetchLogs()">REFRESH</span>
+        </div>
+        <div id="log-list"></div>
+    </div>
+</div>
+
+<script>
+    // --- APP LOGIC ---
+    let recording = false;
+    const MAX_PTS = 200;
+
+    // Chart Setup (Minimalist)
+    Chart.defaults.font.family = '-apple-system';
+    Chart.defaults.color = '#86868b';
+    const ctx = document.getElementById('chart-main').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'scatter',
+        data: { 
+            datasets: [{ 
+                data: [], 
+                borderColor: '#0a84ff', 
+                backgroundColor: 'rgba(10, 132, 255, 0.1)', // Fill
+                borderWidth: 3,
+                pointRadius: 0,
+                showLine: true,
+                fill: true,
+                tension: 0.4 // Organic curves (Catmull-Rom)
+            }] 
+        },
+        options: {
             responsive: true,
             maintainAspectRatio: false,
             animation: false,
-            interaction: { mode: 'none' },
-            elements: { point: { radius: 0 }, line: { tension: 0.1 } },
-            scales: { x: { display: false }, y: { grid: { color: '#333' } } }
-        };
-
-        const chartPitch = new Chart(document.getElementById('chart-pitch').getContext('2d'), {
-            type: 'line',
-            data: { labels: [], datasets: [{ label: 'Pitch (deg)', data: [], borderColor: '#00e5ff', borderWidth: 2, fill: true, backgroundColor: 'rgba(0, 229, 255, 0.1)' }] },
-            options: { ...commonOptions, plugins: { title: { display: true, text: 'Pitch Angle' } } }
-        });
-
-        const chartAccel = new Chart(document.getElementById('chart-accel').getContext('2d'), {
-            type: 'line',
-            data: { labels: [], datasets: [{ label: 'Vertical Accel (g)', data: [], borderColor: '#cf6679', borderWidth: 2, fill: true, backgroundColor: 'rgba(207, 102, 121, 0.1)' }] },
-            options: { ...commonOptions, plugins: { title: { display: true, text: 'Vertical Acceleration' } } }
-        });
-
-        function addData(chart, label, data) {
-            chart.data.labels.push(label);
-            chart.data.datasets.forEach((dataset) => { dataset.data.push(data); });
-            if (chart.data.labels.length > MAX_POINTS) {
-                chart.data.labels.shift();
-                chart.data.datasets.forEach((dataset) => { dataset.data.shift(); });
-            }
-            chart.update();
-        }
-
-        async function updateStatus() {
-            try {
-                const res = await fetch('/api/status');
-                const data = await res.json();
-                
-                isRecording = data.recording;
-                updateRecordingUI();
-
-                if(data.step_count !== undefined) document.getElementById('val-steps').innerText = data.step_count;
-                if(data.cadence_spm !== undefined) document.getElementById('val-cad').innerText = data.cadence_spm.toFixed(1);
-                if(data.speed_mps !== undefined) document.getElementById('val-spd').innerText = data.speed_mps.toFixed(2);
-                if(data.limping_index !== undefined) document.getElementById('val-limp').innerText = data.limping_index.toFixed(3);
-                if(data.battery !== undefined) document.getElementById('bat-level').innerText = data.battery;
-
-                const now = new Date().toLocaleTimeString();
-                if(data.pitch !== undefined) addData(chartPitch, now, data.pitch);
-                if(data.az !== undefined) addData(chartAccel, now, data.az - 1.0);
-
-            } catch (e) { console.error("Status fetch failed", e); }
-        }
-
-        function updateRecordingUI() {
-            const badge = document.getElementById('status-badge');
-            const btnStart = document.getElementById('btn-start');
-            const btnStop = document.getElementById('btn-stop');
-            if (isRecording) {
-                badge.innerText = "Recording";
-                badge.classList.add('recording');
-                btnStart.disabled = true;
-                btnStop.disabled = false;
-            } else {
-                badge.innerText = "Idle";
-                badge.classList.remove('recording');
-                btnStart.disabled = false;
-                btnStop.disabled = true;
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: '#2c2c2e' }, title: { display: false } }, 
+                y: { grid: { color: '#2c2c2e' }, min: 0, max: 0.5 }
             }
         }
+    });
 
-        async function startRecording() { try { await fetch('/api/record/start', { method: 'POST' }); updateStatus(); } catch(e) { alert("Error starting"); } }
-        async function stopRecording() { try { await fetch('/api/record/stop', { method: 'POST' }); updateStatus(); fetchLogs(); } catch(e) { alert("Error stopping"); } }
-        async function calibrate() { if(confirm("Calibrate? Stand still.")) { try { await fetch('/api/calibrate', { method: 'POST' }); alert("Done!"); } catch(e) { alert("Error"); } } }
-        
-        async function formatStorage() {
-            if(confirm("WARNING: This will delete ALL logs. Continue?")) {
-                try { 
-                    await fetch('/api/format', { method: 'POST' }); 
-                    alert("Formatted! Device may restart."); 
-                    fetchLogs();
-                } catch(e) { alert("Error formatting"); }
-            }
-        }
+    // API Wrapper
+    async function api(endpoint) { await fetch('/api/'+endpoint, {method:'POST'}); sync(); }
+    
+    async function record(start) {
+        if(start) await api('record/start');
+        else { await api('record/stop'); fetchLogs(); }
+    }
 
-        async function deleteLog(filename) {
-            if(confirm(`Delete ${filename}?`)) {
-                try {
-                    await fetch(`/api/delete?file=${filename}`, { method: 'POST' });
-                    fetchLogs();
-                } catch(e) { alert("Error deleting"); }
-            }
-        }
+    async function sync() {
+        try {
+            const r = await fetch('/api/status');
+            const d = await r.json();
+            
+            // State
+            recording = d.recording;
+            document.getElementById('status-text').innerText = recording ? "RECORDING" : "IDLE";
+            document.getElementById('rec-dot').className = recording ? "dot active" : "dot";
+            
+            document.getElementById('btn-rec').style.display = recording ? 'none' : 'block';
+            document.getElementById('btn-rec').disabled = recording; // Just hide/disable logic
+            
+            const stopBtn = document.getElementById('btn-stop');
+            if(recording) { stopBtn.classList.add('active'); stopBtn.classList.add('btn-danger'); }
+            else { stopBtn.classList.remove('active'); stopBtn.classList.remove('btn-danger'); }
 
-        async function fetchLogs() {
-            const list = document.getElementById('log-list');
-            list.innerHTML = '<li style="padding:10px;">Loading...</li>';
-            try {
-                const res = await fetch('/api/logs');
-                const files = await res.json();
-                list.innerHTML = '';
-                if (files.length === 0) { list.innerHTML = '<li style="padding:10px;">No logs found.</li>'; return; }
-                files.forEach(f => {
-                    const li = document.createElement('li');
-                    li.className = 'log-item';
-                    const displayName = f.name.substring(1);
-                    const sizeKB = (f.size / 1024).toFixed(1);
-                    li.innerHTML = `
-                        <div>
-                            <a href="/logs${f.name}" download="${displayName}">${displayName}</a>
-                            <span style="margin-left:10px; font-size:0.8rem;">${sizeKB} KB</span>
-                        </div>
+            // Metrics
+            document.getElementById('m-steps').innerText = d.step_count;
+            document.getElementById('m-dist').innerText = d.dist_m.toFixed(1);
+            document.getElementById('m-clear').innerText = (d.pz * 100).toFixed(1);
+            document.getElementById('m-pitch').innerText = d.pitch.toFixed(0);
+
+            // Chart (Organic Push)
+            chart.data.datasets[0].data.push({x: d.px, y: d.pz});
+            if(chart.data.datasets[0].data.length > MAX_PTS) chart.data.datasets[0].data.shift();
+            chart.update('none');
+
+        } catch(e) {}
+    }
+
+    async function fetchLogs() {
+        const el = document.getElementById('log-list');
+        el.innerHTML = '<div style="padding:10px; color:#555">Loading...</div>';
+        try {
+            const r = await fetch('/api/logs');
+            const files = await r.json();
+            el.innerHTML = '';
+            files.slice(0, 5).forEach(f => {
+                el.innerHTML += `
+                    <div class="log-item">
+                        <span>${f.name.substring(1)}</span>
                         <div class="log-actions">
-                            <button class="btn-danger btn-sm" onclick="deleteLog('${f.name}')">Del</button>
+                            <span style="color:#666">${(f.size/1024).toFixed(1)} KB</span>
+                            <a href="/logs${f.name}" download>DL</a>
                         </div>
-                    `;
-                    list.appendChild(li);
-                });
-            } catch (e) { list.innerHTML = '<li style="padding:10px; color:var(--danger);">Error fetching logs.</li>'; }
-        }
+                    </div>`;
+            });
+            if(files.length === 0) el.innerHTML = '<div style="padding:10px">No recordings yet.</div>';
+        } catch(e) {}
+    }
 
-        setInterval(updateStatus, 100);
-        fetchLogs();
-    </script>
+    setInterval(sync, 100); // 10Hz Sync
+    fetchLogs();
+
+</script>
 </body>
 </html>
 )rawliteral";

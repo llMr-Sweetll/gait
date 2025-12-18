@@ -1,74 +1,93 @@
-# M5StickC Plus2 Gait Logger
+# GaitOS V10 (Medical Grade)
 
-A self-contained hip-worn gait logger with a built-in web interface.
+**The Professional Gait Analysis System for M5StickC Plus2.**
 
-## Features
+GaitOS V10 is a research-grade firmware that transforms the M5StickC Plus2 into a precision inertial measurement tool. Unlike previous versions that relied on empirical estimates, V10 utilizes a **Physics-Based Engine (ZUPT-INS)** to mathematically reconstruct the 3D trajectory of the foot in real-time.
 
-- **Real-time Gait Analysis**: Step count, Cadence, Speed, Momentum, Limping Index.
-- **Web Interface**: Live charts and metrics via WiFi AP.
-- **Data Logging**: CSV recording to internal storage (LittleFS).
-- **Standalone**: Battery powered, wearable.
+---
 
-## Hardware
+## 🏥 Medical Grade Features
 
-- **Device**: M5StickC Plus2
-- **Mounting**: Lower back / hip, screen facing out, USB-C to the left.
+### 1. 3D Trajectory Reconstruction
 
-## Project Structure
+Visualizes the actual side-profile arc of your footstep (Z vs X position) in real-time.
 
-- `firmware/main.cpp`: Main firmware source code.
-- `data/index.html`: Web interface (must be uploaded to LittleFS).
-- `platformio.ini`: PlatformIO configuration.
+- **Why it matters**: Allows detection of "foot drop" (low clearance) or shuffling gait dynamics not visible in simple angle plots.
 
-## How to Upload (Arduino IDE - Recommended)
+### 2. ZUPT-Aided Inertial Navigation
 
-Since your command-line environment has dependency issues, the **Arduino IDE** is the most reliable way to upload.
+Uses **Zero Velocity Update (ZUPT)** algorithms to eliminate sensor drift.
 
-### 1. Setup Arduino IDE
+- **Mechanism**: The system detects the precise millisecond your foot impacts the ground (Stance Phase) and resets velocity errors to zero, enabling high-accuracy tracking.
 
-1. Download and install [Arduino IDE](https://www.arduino.cc/en/software).
-2. Open Arduino IDE.
-3. Go to **File > Preferences**.
-4. In "Additional Boards Manager URLs", add:
-    `https://m5stack.oss-cn-shenzhen.aliyuncs.com/resource/arduino/package_m5stack_index.json`
-5. Go to **Tools > Board > Boards Manager**.
-6. Search for `M5Stack` and install **M5Stack by M5Stack**.
+### 3. Clinical Metrics
 
-### 2. Install Libraries
+- **Clearance**: Maximum foot height during swing (cm).
+- **Step Length**: Physical distance traveled per step (m).
+- **Stance/Swing Ratio**: Precise timing of gait phases.
 
-1. Go to **Tools > Manage Libraries**.
-2. Search for and install:
-    - `M5Unified`
-    - `ESPAsyncWebServer` (by ESPHome or Me-No-Dev)
-    - `AsyncTCP` (by ESPHome or Me-No-Dev)
+---
 
-### 3. Upload Filesystem (Web UI)
+## ⚠️ CRITICAL: How to Wear
 
-*Note: Arduino IDE 2.x doesn't support the old "Sketch Data Upload" plugin easily. We will use a workaround or you can just put the HTML in the code if needed. BUT, for now, let's try to compile the firmware first.*
+**THIS SYSTEM REQUIRS FOOT ATTACHMENT.**
 
-**Alternative for Web UI**:
-If you cannot upload the filesystem, you can convert `index.html` to a C string string in `main.cpp`.
-**I have updated the firmware to include the HTML directly** so you don't need to worry about filesystem uploading!
+# GaitOS V12.0 (The Wozniak Edition)
 
-### 4. Upload Firmware
+**"It Just Works" (Jobs) + "It Works Perfectly" (Woz)**
 
-1. Open `firmware/main.cpp` in Arduino IDE.
-    - *Note*: You might need to rename `main.cpp` to `gait.ino` and put it in a folder named `gait`.
-2. Select Board: **M5StickC Plus2** (or `M5StickCPlus2`).
-3. Connect your device via USB.
-4. Select the correct Port.
-5. Click **Upload** (Right Arrow icon).
+GaitOS is a medical-grade gait analysis system for the M5StickC Plus2. It combines physics-based ZUPT-INS algorithms with a frictionless, high-performance "Jobsian" interface.
 
-## Usage
+## 🚀 Key Features (V12)
 
-1. Power on the device.
-2. Wait for the screen to show:
+* **Medical Grade Accuracy**: ZUPT-INS Engine with Circular Buffer Optimization.
+- **Jobsian Interface**: Minimalist Geometric Icons, Organic "Breathing" Animations, and "Hero" Trajectory Visualization.
+- **Frictionless Sync**: Built-in **QR Code** for instant WiFi connection.
+- **Wozniak Engineering**: Zero-allocation Loop, Fast Math, and Robust Drift Cancellation.
 
-   ```
-   SSID: GAIT-LOGGER
-   IP: 192.168.4.1
-   ```
+## 🛠️ Calibration Protocol (The "Woz" Zero)
 
-3. Connect your phone/laptop to WiFi `GAIT-LOGGER` (password: `circumduct123`).
-4. Open browser to `http://192.168.4.1`.
-5. Use the Web UI to view live data or start recording.
+To achieve medical-grade data without "horrible drift", you MUST follow this protocol:
+
+1. **Boot**: Place device FLAT on a table. Turn on. Wait 5 seconds.
+2. **Zeroing**: If you see drift or "weird numbers":
+    - Go to **System -> Zero Sensors**.
+    - **CRITICAL**: Keep the device ABSOLUTELY STILL for 2 seconds while it samples the Gyro Bias.
+    - Once "Zeroed" toast appears, you are ready.
+
+## 📱 How to Use
+
+1. **Attach**: Strap firmly to your foot/shoe (Screen facing OUT/SIDE).
+2. **Connect**:
+    - Open **Connect** App on device.
+    - Scan QR Code with phone.
+    - Or connect to WiFi `GAIT-LOGGER` (Pass: `circumduct123`) and browse to `192.168.4.1`.
+3. **Walk**:
+    - Open **Lab** App to see live steps.
+    - Use Web UI to visualize Trajectory.
+    - Press **Record** (Button A) or use Web UI to log data.
+
+## 📂 Downloads
+
+Files are saved as `.csv` in internal storage.
+- **Method A**: Click filename in Web Dashboard.
+- **Method B**: Access `/api/logs` for JSON list.
+
+## 🔧 Build & Flash
+
+1. Install VS Code + PlatformIO.
+2. Open Project.
+3. Upload `firmware/main.cpp`.
+4. Upload `data` (LittleFS Image).
+cting the "Stance" phase.
+
+- **Fix**: Ensure the device is **firmly attached to the foot** and you are walking with a distinct "flat foot" phase. The ZUPT threshold might need tuning for very soft sneakers or running.
+
+**Issue: Screen is upside down.**
+
+- **Fix**: Go to **Settings -> Flip Screen** (Manual toggle). Or restart the device (V10 static default is Landscape).
+
+---
+
+**Developed for Advanced Gait Research.**
+*Based on 2023-2024 ZUPT-INS methodologies.*
