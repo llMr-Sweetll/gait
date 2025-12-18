@@ -451,11 +451,13 @@ void LauncherApp::onBtnA() {
 void setupAPI() {
   server.on("/api/status", HTTP_GET, []() {
     char buf[256];
+    // V13 UPDATE: Added 'cad', 'stab', 'is_stat'
     snprintf(buf, sizeof(buf),
              "{\"recording\":%d,\"step_count\":%lu,\"dist_m\":%.1f,\"phase\":%"
-             "d,\"px\":%.3f,\"pz\":%.3f,\"pitch\":%.1f}",
+             "d,\"px\":%.3f,\"pz\":%.3f,\"pitch\":%.1f,\"cad\":%.1f,\"stab\":%."
+             "1f,\"is_stat\":%d}",
              isRecording, stepCount, distanceTotal, currentPhase, pos.x, pos.z,
-             pitch);
+             pitch, cadence, stabilityIndex, isStationary);
     server.send(200, "application/json", buf);
   });
 
