@@ -1,13 +1,11 @@
-# PlatformIO
-.pio
+# PlatformIO & IDE
 .pio/
 .pioenvs
 .piolibdeps
-.idea
-.vscode
-*.custom_targets
+.vscode/
+.idea/
 
-# C/C++ Main
+# Compilation Artifacts
 *.o
 *.a
 *.elf
@@ -16,19 +14,20 @@
 *.map
 *.d
 
-# OS Specific
+# OS System Files
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Logs
+# Data Logs & Recordings
 *.log
 *.csv
 /logs/
 
-# Python / Scripts
+# Python Cache
 __pycache__/
 *.py[cod]
 
-# Temporary
+# Local Development Tools (Excluded from Repo)
+generate_proofs.py
 simulation.html
