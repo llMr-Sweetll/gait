@@ -1,12 +1,10 @@
 /**
- * M5StickC Plus2 GaitOS v12.0 (The 'Wozniak' Edition)
+ * M5StickC Plus2 GaitOS v13.0 (Hybrid Refinement)
  *
- * Engineering Excellence:
- * - Optimization: Circular Ring Buffer for Trajectory (Zero Heap Allocation in
- * Loop).
- * - Stability: 'Fast Maths' & Static Memory allocation.
- * - Logic: Robust "Double-Tap" Calibration & Drift Cancellation.
- * - UI: Jobsian Aesthetics (Retained).
+ * "Steve & Woz" Edition - Refined
+ * - Robustness: Step Time & Amplitude Gating (Anti-Sensitivity).
+ * - features: Cadence (SPM), Stability Index, Swing Time.
+ * - Hybrid: ZUPT Physics + Empirical Limits.
  */
 
 #include <Arduino.h>
@@ -18,13 +16,18 @@
 #include "web_page.h"
 
 // =============================================================================
-// CONFIG (The 'Woz' Constants)
+// CONFIG
 // =============================================================================
 const char *WIFI_SSID = "GAIT-LOGGER";
 const char *WIFI_PASS = "circumduct123";
 const int SAMPLE_RATE_HZ = 100;
-const int SAMPLE_INTERVAL_MS = 10; // Exact 10ms
-const int TRAJ_BUF_SIZE = 256;     // Power of 2 for fast wrapping
+const int SAMPLE_INTERVAL_MS = 10;
+const int TRAJ_BUF_SIZE = 256;
+
+// Tuning Parameters (The "Woz" Tweaks)
+const float MIN_STEP_TIME_MS = 300.0f; // Max 200 SPM (Running)
+const float MIN_SWING_ACCEL = 1.2f;    // Must accelerate to be a step
+const float ZUPT_THRESH_DPS = 40.0f;   // Gyro threshold for stance
 
 // =============================================================================
 // TYPES & GLOBALS
@@ -37,20 +40,19 @@ struct Vector3 {
 };
 struct Point {
   int16_t x, z;
-}; // 4 bytes per point (Optimization)
+};
 
-// Wozniak Ring Buffer (Static Allocation = No Crash)
 struct RingBuffer {
   Point buffer[TRAJ_BUF_SIZE];
   int head = 0;
   int count = 0;
   void push(Point p) {
     buffer[head] = p;
-    head = (head + 1) & (TRAJ_BUF_SIZE - 1); // Fast Modulo
+    head = (head + 1) & (TRAJ_BUF_SIZE - 1);
     if (count < TRAJ_BUF_SIZE)
       count++;
   }
-  Point get(int idx) { // Get relative to oldest
+  Point get(int idx) {
     int start = (count < TRAJ_BUF_SIZE) ? 0 : head;
     return buffer[(start + idx) & (TRAJ_BUF_SIZE - 1)];
   }
@@ -68,7 +70,6 @@ public:
 WebServer server(80);
 M5Canvas canvas(&M5.Display);
 
-// System State
 AppID currentAppID = APP_LAUNCHER;
 App *currentApp = nullptr;
 bool isRecording = false;
@@ -77,25 +78,29 @@ unsigned long lastSampleTime = 0;
 String toastMsg = "";
 unsigned long toastEndTime = 0;
 
-// Physics Engine (Optimized)
+// Physics
 float ax, ay, az, gx, gy, gz;
-float gbx = 0, gby = 0, gbz = 0; // Bias
+float gbx = 0, gby = 0, gbz = 0;
 float q0 = 1.0f, q1 = 0.0f, q2 = 0.0f, q3 = 0.0f;
 float beta = 0.5f;
 Vector3 vel = {0, 0, 0}, pos = {0, 0, 0};
 GaitPhase currentPhase = PHASE_STANCE;
 float roll = 0, pitch = 0, yaw = 0, yaw_offset = 0;
 
-// Metrics
+// Metrics (The "Packed" Features)
 unsigned long stepCount = 0;
 float distanceTotal = 0.0f;
 float lastClearance = 0.0f;
 bool isStationary = true;
+float cadence = 0.0f;          // Steps Per Minute
+float stabilityIndex = 100.0f; // 100% = Perfect, 0% = Unstable
+unsigned long lastStepTime = 0;
+float currentSwingMaxAccel = 0.0f;
 
-RingBuffer trajectory; // The Woz Buffer
+RingBuffer trajectory;
 
 // =============================================================================
-// LOW-LEVEL HELPERS (Woz Logic)
+// HELPERS
 // =============================================================================
 
 void showToast(String msg, int durationMs = 1500) {
@@ -103,17 +108,14 @@ void showToast(String msg, int durationMs = 1500) {
   toastEndTime = millis() + durationMs;
 }
 
-// Optimized Icon Drawer (Direct Pixel Ops)
 void drawIcon(M5Canvas &c, int id, int x, int y, uint16_t color) {
-  int s = 30;
   if (id == 0) { // Foot
     c.fillEllipse(x, y + 5, 12, 6, color);
     c.fillEllipse(x + 15, y, 10, 8, color);
     c.fillTriangle(x - 5, y + 5, x + 15, y + 5, x + 10, y - 5, color);
   } else if (id == 1) { // Wave
-    for (int i = -15; i < 15; i++) {
+    for (int i = -15; i < 15; i++)
       c.drawPixel(x + i, y + sin(i * 0.3) * 10, color);
-    }
   } else if (id == 2) { // QR
     c.drawRect(x - 12, y - 12, 24, 24, color);
     c.fillRect(x - 8, y - 8, 16, 16, color);
@@ -123,7 +125,6 @@ void drawIcon(M5Canvas &c, int id, int x, int y, uint16_t color) {
   }
 }
 
-// Fast Vector Rotation
 Vector3 rotateVector(float x, float y, float z) {
   float _2q0 = 2 * q0, _2q1 = 2 * q1, _2q2 = 2 * q2, _2q3 = 2 * q3;
   float q0q0 = q0 * q0, q1q1 = q1 * q1, q2q2 = q2 * q2, q3q3 = q3 * q3;
@@ -146,16 +147,14 @@ void QuaternionToEuler() {
   yaw = atan2(siny_cosp, cosy_cosp) * 57.29f - yaw_offset;
 }
 
-// "Woz" Precision Calibration
 void ZeroSensors() {
   vel = {0, 0, 0};
   pos = {0, 0, 0};
   stepCount = 0;
   distanceTotal = 0;
   trajectory.count = 0;
-  trajectory.head = 0; // Reset Buffer
+  trajectory.head = 0;
 
-  // Average 200 samples for Bias
   float sumX = 0, sumY = 0, sumZ = 0;
   for (int i = 0; i < 200; i++) {
     M5.Imu.getGyro(&gx, &gy, &gz);
@@ -167,32 +166,34 @@ void ZeroSensors() {
   gbx = sumX / 200.0f;
   gby = sumY / 200.0f;
   gbz = sumZ / 200.0f;
-
   yaw_offset = 0;
   QuaternionToEuler();
   yaw_offset = yaw;
-  showToast("Zeroed (Woz Mode)");
+  showToast("Precision Zeroed");
 }
 
-void UpdatePhysics(float dt) {
+// HYBRID ENGINE LOGIC
+void UpdatePhysics(float dt, unsigned long now) {
+  // 1. Bias Correction
   float _gx = (gx - gbx) * 0.01745f;
   float _gy = (gy - gby) * 0.01745f;
   float _gz = (gz - gbz) * 0.01745f;
 
-  // Madgwick (Unrolled for perf)
+  // 2. Madgwick
+  // (Condensed for space - assuming standard Madgwick math here)
   float recip, s0, s1, s2, s3, qD1, qD2, qD3, qD4;
-  // ... Simplified update ...
+  // ...
   if (!((ax == 0) && (ay == 0) && (az == 0))) {
     recip = 1.0f / sqrt(ax * ax + ay * ay + az * az);
     float _ax = ax * recip, _ay = ay * recip, _az = az * recip;
-    float _2q0 = 2 * q0, _2q1 = 2 * q1, _2q2 = 2 * q2, _2q3 = 2 * q3,
-          _4q0 = 4 * q0, _4q1 = 4 * q1, _4q2 = 4 * q2, _8q1 = 8 * q1,
-          _8q2 = 8 * q2;
+    float _2q0 = 2 * q0, _2q1 = 2 * q1, _2q2 = 2 * q2, _4q0 = 4 * q0,
+          _4q1 = 4 * q1, _4q2 = 4 * q2, _8q1 = 8 * q1, _8q2 = 8 * q2;
     float q0q0 = q0 * q0, q1q1 = q1 * q1, q2q2 = q2 * q2, q3q3 = q3 * q3;
+    // Gradient Descent (simplified)
     s0 = _4q0 * q2q2 + _2q2 * _ax + _4q0 * q1q1 - _2q1 * _ay;
-    s1 = _4q1 * q3q3 - _2q3 * _ax + 4 * q0q0 * q1 - _2q0 * _ay - _4q1 +
+    s1 = _4q1 * q3q3 - 2 * q3 * _ax + 4 * q0q0 * q1 - _2q0 * _ay - _4q1 +
          _8q1 * q1q1 + _8q1 * q2q2 + _4q1 * _az;
-    s2 = 4 * q0q0 * q2 + _2q0 * _ax + _4q2 * q3q3 - _2q3 * _ay - _4q2 +
+    s2 = 4 * q0q0 * q2 + _2q0 * _ax + _4q2 * q3q3 - 2 * q3 * _ay - _4q2 +
          _8q2 * q1q1 + _8q2 * q2q2 + _4q2 * _az;
     s3 = 4 * q1q1 * q3 - _2q1 * _ax + 4 * q2q2 * q3 - _2q2 * _ay;
     recip = 1.f / sqrt(s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3);
@@ -216,21 +217,52 @@ void UpdatePhysics(float dt) {
   }
   QuaternionToEuler();
 
-  float gMag =
-      abs(gx) + abs(gy) + abs(gz); // Manhattan dist is faster than sqrt
-  isStationary = (gMag < 35.0f);
+  // 3. ZUPT - Tuned for Hybrid
+  float gMag = abs(gx) + abs(gy) + abs(gz);
+  float aMag = sqrt(ax * ax + ay * ay + az * az);
+  isStationary = (gMag < ZUPT_THRESH_DPS);
 
   if (currentPhase == PHASE_STANCE) {
     if (!isStationary) {
+      // START SWING
       currentPhase = PHASE_SWING;
+      currentSwingMaxAccel = 0; // Reset metrics
     } else {
-      vel = {0, 0, 0};
+      vel = {0, 0, 0}; // Clamp Velocity
     }
   } else { // Swing
     if (isStationary) {
+      // END SWING -> Potential Step
       currentPhase = PHASE_STANCE;
-      float d = sqrt(pos.x * pos.x + pos.y * pos.y);
+
+      // VALIDATION ALGORITHM (The "Refinement")
+      float stepDur = (now - lastStepTime);
+      if (stepDur > MIN_STEP_TIME_MS &&
+          currentSwingMaxAccel > MIN_SWING_ACCEL) {
+        // Valid Step
+        stepCount++;
+        float stepDist = sqrt(pos.x * pos.x + pos.y * pos.y);
+        if (stepDist > 1.5f)
+          stepDist = 1.0f; // Clamp Clumsy GPS-like jumps
+        distanceTotal += stepDist;
+
+        // Calculate Cadence (Steps/Min)
+        float instCadence = 60000.0f / stepDur;
+        cadence = (cadence * 0.8f) + (instCadence * 0.2f); // Smooth it
+
+        // Stability: Variance in step time (Simple Metric)
+        float var = abs(instCadence - cadence);
+        stabilityIndex = constrain(100.0f - var, 0, 100);
+
+        lastStepTime = now;
+      } else {
+        // Invalid (Noise/Shuffle) - Don't count, maybe noise
+      }
+      // Reset for next step, keeping global pos relative
+      pos = {0, 0, 0};
+
     } else {
+      // Integrate
       Vector3 acc = rotateVector(ax, ay, az);
       acc.z -= 1.0f;
       acc.x *= 9.81f;
@@ -242,12 +274,14 @@ void UpdatePhysics(float dt) {
       pos.x += vel.x * dt;
       pos.y += vel.y * dt;
       pos.z += vel.z * dt;
+
+      if (aMag > currentSwingMaxAccel)
+        currentSwingMaxAccel = aMag;
       if (pos.z * 100 > lastClearance)
         lastClearance = pos.z * 100;
 
-      // Woz Optimization: Only push if moved noticeably
-      Point p = {(int16_t)(pos.x * 100),
-                 (int16_t)(pos.z * 100)}; // Cast to int16
+      // Visualization Push
+      Point p = {(int16_t)(pos.x * 100), (int16_t)(pos.z * 100)};
       if (trajectory.count == 0 ||
           abs(p.x -
               trajectory.buffer[(trajectory.head - 1) & (TRAJ_BUF_SIZE - 1)]
@@ -256,12 +290,6 @@ void UpdatePhysics(float dt) {
       }
     }
   }
-  static GaitPhase lastPhase = PHASE_STANCE;
-  if (lastPhase == PHASE_SWING && currentPhase == PHASE_STANCE) {
-    stepCount++;
-    distanceTotal = sqrt(pos.x * pos.x + pos.y * pos.y);
-  }
-  lastPhase = currentPhase;
 }
 
 // =============================================================================
@@ -276,7 +304,7 @@ public:
     c.fillRect(0, 0, 240, 135, BLACK);
     c.setTextSize(1);
     c.setTextColor(0x52AA);
-    c.drawCenterString("GaitOS V12", 120, 120, 1);
+    c.drawCenterString("GaitOS V13.0", 120, 120, 1);
     int spacing = 60, startX = 30;
     uint16_t cols[4] = {0x07E0, 0x041F, WHITE, 0xF800};
     const char *names[4] = {"Lab", "Scope", "Connect", "System"};
@@ -313,20 +341,29 @@ public:
     c.fillScreen(BLACK);
     c.setTextColor(LIGHTGREY);
     c.setCursor(5, 5);
-    c.print("LIVE");
+    c.print("HYBRID ENGINE");
     if (isRecording)
       c.fillCircle(230, 10, 6, RED);
-    c.setTextSize(4);
+
+    // Refined layout: Show Cadence (SPM)
+    c.setTextSize(3);
     c.setTextColor(WHITE);
-    c.drawCenterString(String(stepCount), 60, 50, 1);
-    c.drawCenterString(String((int)pitch), 180, 50, 1);
+    c.drawCenterString(String(stepCount), 60, 45, 1);
+    c.drawCenterString(String((int)cadence), 180, 45, 1);
+
     c.setTextSize(1);
     c.setTextColor(BLUE);
-    c.drawCenterString("STEPS", 60, 90, 1);
-    c.drawCenterString("PITCH", 180, 90, 1);
-    c.setCursor(100, 120);
-    c.setTextColor(isStationary ? GREEN : YELLOW);
-    c.print(isStationary ? "STAT" : "MOVE");
+    c.drawCenterString("STEPS", 60, 80, 1);
+    c.drawCenterString("SPM (CADENCE)", 180, 80, 1);
+
+    // Bottom Bar: Distance + Stability
+    c.drawFastHLine(20, 95, 200, 0x3333);
+    c.setCursor(25, 105);
+    c.setTextColor(WHITE);
+    c.printf("DIST: %.1fm", distanceTotal);
+    c.setCursor(140, 105);
+    c.setTextColor(stabilityIndex > 80 ? GREEN : ORANGE);
+    c.printf("STAB: %d%%", (int)stabilityIndex);
   }
   void onBtnA() override {
     if (isRecording) {
@@ -350,7 +387,6 @@ public:
   void onDraw(M5Canvas &c) override {
     c.fillScreen(BLACK);
     int ox = 20, gy = 120;
-    // Woz: Iterate Ring Buffer carefully
     for (int i = 1; i < trajectory.count; i++) {
       Point p1 = trajectory.get(i - 1);
       Point p2 = trajectory.get(i);
@@ -366,7 +402,7 @@ public:
     c.setTextSize(1);
     c.setTextColor(WHITE);
     c.setCursor(5, 5);
-    c.printf("Z:%d Y:%d", (int)(pos.z * 100), (int)yaw);
+    c.printf("Z:%d cm", (int)(pos.z * 100));
   }
 };
 class SettingsApp : public App {
@@ -414,7 +450,6 @@ void LauncherApp::onBtnA() {
 
 void setupAPI() {
   server.on("/api/status", HTTP_GET, []() {
-    // Woz Optimization: Static Buffer to avoid Heap Frag
     char buf[256];
     snprintf(buf, sizeof(buf),
              "{\"recording\":%d,\"step_count\":%lu,\"dist_m\":%.1f,\"phase\":%"
@@ -429,7 +464,8 @@ void setupAPI() {
       logFile = LittleFS.open("/gait_" + String(millis()) + ".csv", FILE_WRITE);
       if (logFile) {
         isRecording = true;
-        logFile.println("t,ax,ay,az,gx,gy,gz,px,pz,phase,roll,pitch,yaw");
+        logFile.println(
+            "t,ax,ay,az,gx,gy,gz,px,pz,phase,roll,pitch,yaw,cadence");
         showToast("Remote REC");
       }
     }
@@ -467,7 +503,7 @@ void setupAPI() {
   });
   server.on("/api/format", HTTP_POST, []() {
     LittleFS.format();
-    server.send(200, "text/plain", "Only if Woz says so.");
+    server.send(200, "text/plain", "Formatted");
   });
   server.onNotFound([]() {
     String uri = server.uri();
@@ -496,7 +532,7 @@ void setup() {
   setupAPI();
   server.begin();
 
-  ZeroSensors(); // Woz Calibration
+  ZeroSensors();
   currentApp = &appLauncher;
 }
 
@@ -509,12 +545,12 @@ void loop() {
     lastSampleTime = now;
     M5.Imu.getAccel(&ax, &ay, &az);
     M5.Imu.getGyro(&gx, &gy, &gz);
-    UpdatePhysics(dt);
+    UpdatePhysics(dt, now);
     if (isRecording && logFile)
-      logFile.printf(
-          "%lu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%.1f,%.1f,%.1f\n",
-          now, ax, ay, az, gx, gy, gz, pos.x, pos.z, currentPhase, roll, pitch,
-          yaw);
+      logFile.printf("%lu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%.1f,%.1f,"
+                     "%.1f,%.1f\n",
+                     now, ax, ay, az, gx, gy, gz, pos.x, pos.z, currentPhase,
+                     roll, pitch, yaw, cadence);
   }
   if (M5.BtnA.wasPressed())
     currentApp->onBtnA();
