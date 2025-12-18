@@ -41,26 +41,34 @@ The core engineering contribution is the fusion of Newton's Laws of Motion with 
 
 The system operates in the **Navigation Frame ($n$)** (Earth-Fixed, Gravity Down).
 
-**Step 1: Attitude Estimation (Quaternion Update)**
+#### Step 1: Attitude Estimation (Quaternion Update)
+
 Using the Madgwick filter, we compute the orientation quaternion $q_k$.
+
 $$
 q_k = q_{k-1} + \frac{1}{2} (q_{k-1} \otimes \omega_k) \Delta t - \beta \frac{\nabla f}{\|\nabla f\|} \Delta t
 $$
+
 Where $\omega$ is the angular rate vector and $\nabla f$ corrects for gravity tilt.
 
-**Step 2: Gravity Compensation**
+#### Step 2: Gravity Compensation
+
 We rotate the body-frame acceleration $a^b$ to the navigation frame $a^n$ and subtract gravity $g$:
+
 $$
 a^n_k = R(q_k) a^b_k - \begin{bmatrix} 0 \\ 0 \\ 9.81 \end{bmatrix}
 $$
 
-**Step 3: Double Integration**
+#### Step 3: Double Integration
+
 $$
 v_k = v_{k-1} + a^n_k \Delta t
 $$
+
 $$
 p_k = p_{k-1} + v_k \Delta t
 $$
+
 *Issue*: Without correction, sensor noise $\epsilon$ causes position error $p_{err} \propto t^2$.
 
 ### ⚠️ Proof of Concept: The Drift Problem
@@ -73,14 +81,18 @@ The following validation data, generated from the GaitOS engine, demonstrates th
 
 To bound the drift, we exploit the biomechanics of walking. When the foot is flat (Stance), velocity *must* be zero.
 
-**Stance Condition**:
+#### Stance Condition
+
 $$
 \text{IsStance} = (\|\omega\| < 40^\circ/s) \land (\|a_{lin}\| < 0.2g)
 $$
-**Constraint Application**:
+
+#### Constraint Application
+
 $$
 \text{If IsStance} \implies v_k \leftarrow [0, 0, 0]^T
 $$
+
 This resets the integration error integral at every step.
 
 ![Stance Logic](assets/proof_stance.png)
@@ -93,6 +105,7 @@ GaitOS transforms accessible hardware into research instruments:
 * **Hardware Agnostic**: Runs on ESP32, Teensy, or Arduino Nano 33 IoT.
 * **Total Cost**: $< $30 USD (vs $2,000 Xsens).
 * **Fabrication**: Requires no PCB design—simply strap an M5StickC Plus 2 to a shoe.
+
 This empowers "Citizen Scientists" and Makers to contribute to biomechanics research without university funding.
 
 ---
@@ -104,21 +117,32 @@ Pure ZUPT fails during irregular movements (shuffling, vibrations). V13 introduc
 ### 3.1 Temporal Gating
 
 A stride is biomechanically constrained. We reject any zero-crossing event where:
-$$ \Delta t_{step} < 300ms $$
+
+$$
+\Delta t_{step} < 300ms
+$$
+
 This filters out "micro-steps" caused by sensor noise or floor vibrations.
 
 ### 3.2 Amplitude Gating
 
 A valid swing phase requires significant energy. We enforce:
-$$ \max(\|a^n\|_{swing}) > 1.2g $$
+
+$$
+\max(\|a^n\|_{swing}) > 1.2g
+$$
+
 This prevents shuffling from registering as full steps, ensuring data integrity for stroke patients who may drag their feet.
 
 ### 3.3 The Stability Index ($SI$)
 
 We define a novel metric for gait regularity based on the variance of stride timing.
-$$ SI = \max \left( 0, 100 - \frac{|Cadence_{inst} - Cadence_{avg}|}{Cadence_{avg}} \times 100 \right) $$
 
-**Clinical Interpretation**:
+$$
+SI = \max \left( 0, 100 - \frac{|Cadence_{inst} - Cadence_{avg}|}{Cadence_{avg}} \times 100 \right)
+$$
+
+#### Clinical Interpretation
 
 * **SI > 90%**: Healthy, rhythmic gait (Green Line).
 * **SI < 60%**: Highly irregular, indicative of Ataxia or Fatigue (Red Line).
@@ -129,15 +153,19 @@ $$ SI = \max \left( 0, 100 - \frac{|Cadence_{inst} - Cadence_{avg}|}{Cadence_{av
 ### 3.4 Full Euler Angle Extraction
 
 For biofeedback, we extract the Foot Angle ($\theta, \phi, \psi$) from the Quaternion $q$:
+
 $$
 \phi = \arctan\frac{2(q_0 q_1 + q_2 q_3)}{1 - 2(q_1^2 + q_2^2)}
 $$
+
 $$
 \theta = \arcsin(2(q_0 q_2 - q_3 q_1))
 $$
+
 $$
 \psi = \arctan\frac{2(q_0 q_3 + q_1 q_2)}{1 - 2(q_2^2 + q_3^2)}
 $$
+
 This allows the patient to visualize their foot angle in real-time.
 
 ---

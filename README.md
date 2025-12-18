@@ -133,14 +133,17 @@ GaitOS V13 uses a **Strapdown Inertial Navigation System (SINS)** aided by **Zer
 ### 1. Orientation Estimate (Madgwick Filter)
 
 We fuse Accelerometer ($a$) and Gyroscope ($\omega$) data to compute the orientation Quaternion ($q$):
+
 $$
 \dot{q}_{est} = \dot{q}_{\omega} - \beta \frac{\nabla f}{\| \nabla f \|}
 $$
+
 Where $\beta$ is the gain (tuned to 0.5) and $\nabla f$ is the gradient descent direction ensuring the gravity vector points DOWN ($[0,0,1]$).
 
 ### 2. Gravity Compensation
 
 Linear acceleration ($a_{lin}$) is isolated by subtracting gravity ($g$):
+
 $$
 a_{lin}^n = R(q) \cdot a_{measured}^b - [0, 0, 1]^T \cdot 9.81
 $$
@@ -159,8 +162,12 @@ To assist the physics engine, V13 applies empirical gates:
 * **Time Gate**: $\Delta t_{step} > 300ms$ (Rejects micro-vibrations).
 * **Amplitude Gate**: $a_{peak} > 1.2g$ (Requires physical lift).
 * **Stability Index ($SI$)**:
-    $$ SI = 100 - |Cadence_{instant} - Cadence_{avg}| $$
-    (High SI = Rhythmic, Healthy Gait. Low SI = Ataxic/Irregular Gait).
+
+$$
+SI = 100 - |Cadence_{instant} - Cadence_{avg}|
+$$
+
+(High SI = Rhythmic, Healthy Gait. Low SI = Ataxic/Irregular Gait).
 
 ---
 
