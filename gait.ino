@@ -39,10 +39,11 @@ const int SAMPLE_INTERVAL_MS = 10; // 100Hz
 
 // Tuning Parameters (Core Tweaks)
 // Removed duplicates, keeping Dissertation-Grade Consistencies
-constexpr float ZUPT_THRESH_DPS = 40.0f;   // Angular rate threshold for Stance
-constexpr float ZUPT_ACCEL_G = 0.2f;       // Linear Accel threshold for Stance
-constexpr float MIN_SWING_ACCEL = 1.2f;    // Minimum energy to valid swing
-constexpr float MIN_STEP_TIME_MS = 300.0f; // Minimum time between steps
+// Tuning Parameters (Core Tweaks - Now Mutable for Runtime Tuning)
+float ZUPT_THRESH_DPS = 40.0f;   // Angular rate threshold for Stance
+float ZUPT_ACCEL_G = 0.2f;       // Linear Accel threshold for Stance
+float MIN_SWING_ACCEL = 1.2f;    // Minimum energy to valid swing
+float MIN_STEP_TIME_MS = 300.0f; // Minimum time between steps
 
 // =============================================================================
 // GLOBAL STATE
@@ -329,6 +330,39 @@ void LauncherApp::onBtnA() {
 // =============================================================================
 // SETUP & LOOP
 // =============================================================================
+// --- CONFIG API ---
+void handleConfig() {
+  if (server.hasArg("plain")) {
+    String body = server.arg("plain");
+
+    // Manual JSON Parsing
+    int idxStep = body.indexOf("step_time");
+    if (idxStep > 0) {
+      int valStart = body.indexOf(":", idxStep) + 1;
+      int valEnd = body.indexOf(",", valStart);
+      if (valEnd == -1)
+        valEnd = body.indexOf("}", valStart);
+      MIN_STEP_TIME_MS = body.substring(valStart, valEnd).toFloat();
+    }
+
+    int idxZupt = body.indexOf("zupt_acc");
+    if (idxZupt > 0) {
+      int valStart = body.indexOf(":", idxZupt) + 1;
+      int valEnd = body.indexOf(",", valStart);
+      if (valEnd == -1)
+        valEnd = body.indexOf("}", valStart);
+      ZUPT_ACCEL_G = body.substring(valStart, valEnd).toFloat();
+    }
+    showToast("Saved!", 1000);
+  }
+
+  String json = "{";
+  json += "\"step_time\":" + String(MIN_STEP_TIME_MS) + ",";
+  json += "\"zupt_acc\":" + String(ZUPT_ACCEL_G);
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
 void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
@@ -339,8 +373,10 @@ void setup() {
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
   server.on("/", HTTP_GET,
             []() { server.send_P(200, "text/html", index_html); });
-  server.on("/api/status", HTTP_GET,
-            []() { getStatusJSON(); }); // Fix missing ref
+  server.on("/api/status", HTTP_GET, []() { getStatusJSON(); });
+
+  // Tuning API
+  server.on("/api/config", HTTP_POST, handleConfig);
 
   // Basic API for Rec
   server.on("/api/record/start", HTTP_POST, []() {

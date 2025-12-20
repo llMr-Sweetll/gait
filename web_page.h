@@ -176,11 +176,56 @@ const char index_html[] PROGMEM = R"rawliteral(
         </div>
     </div>
 
+    <!-- Tuning Section (Collapsible) -->
+    <div class="card">
+        <div class="header" onclick="toggleTuning()" style="cursor:pointer">
+            <div class="label">Advanced Tuning (Click to Expand)</div>
+            <div class="label" style="color:var(--accent)">▼</div>
+        </div>
+        <div id="tuning-panel" style="display:none; margin-top:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px;">
+            
+            <!-- Step Duration -->
+            <div style="margin-bottom:20px;">
+                <div class="header">
+                    <span style="font-size:14px; font-weight:600;">Min Step Duration</span>
+                    <span id="lbl-dur" style="font-size:14px; color:var(--accent)">300ms</span>
+                </div>
+                <input type="range" id="rng-dur" min="200" max="800" step="10" value="300" style="width:100%; margin-top:8px;" oninput="updateLbl('dur', this.value + 'ms')">
+                <div class="grid-2" style="margin-top:4px;">
+                    <div class="unit" style="text-align:left;">&lt; Faster Steps</div>
+                    <div class="unit" style="text-align:right;">Slower Gait &gt;</div>
+                </div>
+                <div class="unit" style="font-size:11px; margin-top:4px; color:#888;">
+                    Increase for patients with slow, shuffling gait to avoid double-counting.
+                </div>
+            </div>
+
+            <!-- Sensitivity -->
+            <div style="margin-bottom:20px;">
+                <div class="header">
+                    <span style="font-size:14px; font-weight:600;">Stance Sensitivity</span>
+                    <span id="lbl-sens" style="font-size:14px; color:var(--accent)">0.2g</span>
+                </div>
+                <input type="range" id="rng-sens" min="0.05" max="0.5" step="0.01" value="0.2" style="width:100%; margin-top:8px;" oninput="updateLbl('sens', this.value + 'g')">
+                <div class="grid-2" style="margin-top:4px;">
+                    <div class="unit" style="text-align:left;">&lt; Detects Soft Steps</div>
+                    <div class="unit" style="text-align:right;">Ignores Noise &gt;</div>
+                </div>
+                <div class="unit" style="font-size:11px; margin-top:4px; color:#888;">
+                    Lower (0.1g) for frail patients. Higher (0.3g) for heavy impacts.
+                </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="saveConfig()" style="padding:10px; font-size:14px;">Apply Custom Settings</button>
+            <div style="text-align: center; margin-top: 10px; font-size: 11px; color: var(--text-muted); cursor: pointer;" onclick="resetDefaults()">Reset to Defaults</div>
+        </div>
+    </div>
+
     <!-- Logs -->
     <div class="card">
         <div class="header">
             <div class="label">Session History</div>
-            <div class="label" style="cursor: pointer; color: var(--accent)" onclick="fetchLogs()">REFRESH</div>
+            <div class="label" style="cursor: pointer; color: var(--accent)" onclick="fetchLogs()">REFRESH LIST</div>
         </div>
         <div id="log-list" style="margin-top: 10px; min-height: 50px;">
             <div style="font-size:13px; color:#555">Loading records...</div>
@@ -361,6 +406,46 @@ const char index_html[] PROGMEM = R"rawliteral(
             el.innerHTML = '<div style="padding:10px; font-size:13px; color:#666">Error loading logs.</div>';
         }
     }
+    
+    // --- TUNING LOGIC ---
+    function toggleTuning() {
+        const p = document.getElementById('tuning-panel');
+        p.style.display = p.style.display === 'none' ? 'block' : 'none';
+        if(p.style.display === 'block') loadConfig();
+    }
+    
+    function updateLbl(id, val) { document.getElementById('lbl-'+id).innerText = val; }
+    
+    async function loadConfig() {
+        try {
+            const r = await fetch('/api/config', {method:'POST'}); // Get current
+            const d = await r.json();
+            document.getElementById('rng-dur').value = d.step_time;
+            document.getElementById('lbl-dur').innerText = d.step_time + 'ms';
+            document.getElementById('rng-sens').value = d.zupt_acc;
+            document.getElementById('lbl-sens').innerText = d.zupt_acc + 'g';
+        } catch(e) {}
+    }
+    
+    async function saveConfig() {
+        const dur = document.getElementById('rng-dur').value;
+        const sens = document.getElementById('rng-sens').value;
+        await fetch('/api/config', {
+            method: 'POST',
+            body: JSON.stringify({ step_time: dur, zupt_acc: sens })
+        });
+        alert("Settings Applied!");
+    }
+    
+    function resetDefaults() {
+        document.getElementById('rng-dur').value = 300;
+        document.getElementById('lbl-dur').innerText = "300ms";
+        document.getElementById('rng-sens').value = 0.2;
+        document.getElementById('lbl-sens').innerText = "0.2g";
+        saveConfig();
+    }
+    
+    // Init
     
     // Init
     setInterval(sync, 100);

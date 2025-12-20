@@ -137,6 +137,33 @@ The code relies on the `M5Unified` library to handle the screen, IMU, and power 
 4. Wait 3 seconds. Do not breathe heavily or wiggle toes.
 5. Wait for the "Precision Zeroed" message.
 
+---
+
+## 🎛️ Advanced Tuning Guide (The Hybrid Engine)
+
+GaitOS V13 uses a **Hybrid Architecture**: valid defaults for 90% of users, plus manual overrides for specific pathologies.
+
+### 1. Min Step Duration (Speed Filter)
+
+* **What it is**: The minimum time allowed between two steps.
+* **Default**: `300ms` (0.3 seconds).
+* **When to Adjust**:
+  * **Increase (>500ms)**: For **Slow/Ataxic Walkers**. Prevents the system from counting a "wobbly" single step as two steps.
+  * **Decrease (<250ms)**: For **Athletes/Runners**. Ensures fast cadence is captured accurately.
+
+### 2. Stance Sensitivity (ZUPT Threshold)
+
+* **What it is**: How "strict" the system is about deciding the foot is on the ground.
+* **Default**: `0.2g`.
+* **When to Adjust**:
+  * **Lower (0.05g - 0.15g)**: **"Sensitive Mode"**. Use for **Frail Patients** who shuffle or walk very softly. The system will detect even faint stops.
+  * **Higher (0.25g - 0.50g)**: **"Strict Mode"**. Use for **Heavy Walkers** or uneven terrain. Ignores noise/vibrations.
+
+> **How to Tune**:
+> Open the Web Dashboard $\rightarrow$ Expand **"Advanced Tuning"** at the bottom $\rightarrow$ Adjust Sliders $\rightarrow$ Click **Apply Custom Settings**.
+
+---
+
 ### Phase 3: Recording
 
 1. **Start**:
