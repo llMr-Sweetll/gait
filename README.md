@@ -160,17 +160,46 @@ Temperature and power-on transients affect the gyroscope. You must zero the bias
 
 ---
 
-## 🔬 Scientific Validation
-
-This project is backed by a formal academic dissertation.
-**[Read the Full Manuscript](dissertation.md)**
-
-Cite this work as:
-> Hegde, C. et al. (2025). *GaitOS: A Low-Cost Hybrid Inertial Navigation System for Democratized Clinical Gait Analysis*.
-
 ---
 
-## 📐 Mathematical Framework (The "Hybrid Engine")
+## 🛠️ Installation & Flashing Guide (Arduino IDE)
+
+To bring GaitOS to life on your **M5StickC Plus 2**, follow these exact steps.
+
+### Step 1: Install Arduino IDE
+
+Download and install the latest **Arduino IDE 2.3+** from [arduino.cc](https://www.arduino.cc/en/software).
+
+### Step 2: Configure Board Manager
+
+1. Open Arduino IDE.
+2. Go to **File** -> **Preferences**.
+3. In "Additional Boards Manager URLs", paste:
+    `https://dl.espressif.com/dl/package_esp32_index.json`
+4. Go to **Tools** -> **Board** -> **Boards Manager**.
+5. Search for **ESP32** and install "esp32 by Espressif Systems" (Version 2.0.14 or later).
+
+### Step 3: Install Required Libraries
+
+Go to **Tools** -> **Manage Libraries** and install the following:
+
+1. **M5StickCPlus2** (by M5Stack) - *Critical for display/IMU.*
+2. **M5Unified** (by M5Stack) - *Unified driver layer.*
+3. **ArduinoJSON** (by Benoit Blanchon) - *Optional, if using advanced JSON features.*
+
+### Step 4: Flash the Firmware
+
+1. Open the file `gait/gait.ino` from this repository.
+2. **Select Board**:
+    * **Tools** -> **Board** -> **M5Stack** -> **M5StickCPlus2**.
+3. **USB Mode**: Ensure "USB CDC On Boot" is Enabled (usually default).
+4. **Partition Scheme**: Select **"Default 4MB with Spiffs"** (or Flat).
+5. Connect your M5StickC via USB-C.
+6. Click **Upload (➡️)**.
+
+*Troubleshooting*: If upload fails, hold the small **BtnB** (Side button) while plugging in USB to enter Bootloader mode.
+
+---
 
 GaitOS V13 uses a **Strapdown Inertial Navigation System (SINS)** aided by **Zero Velocity Updates (ZUPT)**.
 

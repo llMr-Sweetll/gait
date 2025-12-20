@@ -1,7 +1,7 @@
 /**
  * M5StickC Plus2 GaitOS v13.0 (Hybrid Refinement)
  *
- * "Steve & Woz" Edition - Refined
+ * "Professional" Edition - Refined
  * - Robustness: Step Time & Amplitude Gating (Anti-Sensitivity).
  * - features: Cadence (SPM), Stability Index, Swing Time.
  * - Hybrid: ZUPT Physics + Empirical Limits.
@@ -23,12 +23,12 @@ const char *WIFI_PASS = "circumduct123";
 const int SAMPLE_INTERVAL_MS = 10;
 const int TRAJ_BUF_SIZE = 256;
 
-// Tuning Parameters (The "Woz" Tweaks)
+// Tuning Parameters (Core Tweaks)
 const float MIN_STEP_TIME_MS = 300.0f; // Max 200 SPM (Running)
 const float MIN_SWING_ACCEL = 1.2f;    // Must accelerat
 // ===================================================================================
-//  GAITOS V13.0 "WOZNIAK EDITION" - HYBRID ENGINE IMPLEMENTATION
-//  Refining the ZUPT algorithm with Dissertation-Grade Thresholds and Jobsian
+//  GAITOS V13.0 "PRO EDITION" - HYBRID ENGINE IMPLEMENTATION
+//  Refining the ZUPT algorithm with Dissertation-Grade Thresholds and Refined
 //  UI.
 // ===================================================================================
 
@@ -36,7 +36,7 @@ const float MIN_SWING_ACCEL = 1.2f;    // Must accelerat
 #include <numeric>
 #include <vector>
 
-// --- WOZNIAK: CONSTANTS & MEMORY OPTIMIZATION ---
+// --- CORE: CONSTANTS & MEMORY OPTIMIZATION ---
 #define SAMPLE_RATE_HZ 100
 #define DT_SEC 0.01f
 
@@ -74,11 +74,20 @@ int trajHead = 0;
 std::vector<float> stepIntervals;
 const int MAX_INTERVAL_HISTORY = 10;
 
-// --- JOBS: THE USER INTERFACE ---
+// --- UI: THE USER INTERFACE ---
 void drawPulse(M5Canvas &canvas, int x, int y, int r, uint16_t color) {
-  // Breathing animation logic could go here, simplified for loop efficiency
+  // The "Living" Interface (Organic Design)
+  float phase = (millis() % 2000) / 2000.0f;         // 2s cycle
+  float breath = (sin(phase * 6.28f) + 1.0f) * 0.5f; // 0.0 to 1.0 smooth
+
+  // Core
   canvas.fillCircle(x, y, r, color);
-  canvas.drawCircle(x, y, r + 2, canvas.alphaBlend(100, color, BLACK));
+
+  // Outer Halo (Breathing)
+  int haloR = r + 2 + (breath * 6);     // Expand/Contract
+  uint8_t alpha = 255 - (breath * 200); // Fade out
+  canvas.drawCircle(x, y, haloR, canvas.alphaBlend(alpha, color, BLACK));
+  canvas.drawCircle(x, y, haloR - 1, canvas.alphaBlend(alpha, color, BLACK));
 }
 
 void updateDisplay() {
@@ -86,7 +95,7 @@ void updateDisplay() {
   // Clear optimized
   M5.Lcd.fillScreen(BLACK);
 
-  // Header (Jobsian Minimalism)
+  // Header (Refined Minimalism)
   M5.Lcd.setTextColor(WHITE);
   M5.Lcd.setTextDatum(MC_DATUM);
   M5.Lcd.setFont(&fonts::FreeSansBold9pt7b);
@@ -136,7 +145,7 @@ void updateDisplay() {
   M5.Lcd.endWrite();
 }
 
-// --- WOZNIAK: CORE ALGORITHM ---
+// --- CORE: CORE ALGORITHM ---
 void ZUPT_INS_Update() {
   // 1. ZUPT DETECTION (The "Nature-Grade" Logic)
   // Ref: Nilsson et al. (2014) - Stance requires BOTH low rotation AND low
