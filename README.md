@@ -38,6 +38,53 @@ Unlike standard pedometers (Fitbit) or simple integrations, GaitOS uses **Physic
 
 ---
 
+## 🛠️ Installation & Development Guide
+
+This section details how to set up the Arduino IDE to compile and flash the GaitOS firmware.
+
+### 1. Install Arduino IDE
+
+Download and install the latest **Arduino IDE (2.0+)** from [arduino.cc](https://www.arduino.cc/en/software).
+
+### 2. Install ESP32 Board Support (Critical)
+
+The M5StickC Plus 2 is based on the ESP32 chip. You must install the ESP32 board definitions to access features like **WiFi**, **WebServer**, and **LittleFS**.
+
+1. Open Arduino IDE $\rightarrow$ **File** $\rightarrow$ **Preferences**.
+2. In "Additional Boards Manager URLs", add:
+    `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+3. Go to **Tools** $\rightarrow$ **Board** $\rightarrow$ **Boards Manager**.
+4. Search for **"esp32"** (by Espressif Systems) and install the latest version (3.0+ recommended).
+
+### 3. Install Required Libraries
+
+These libraries are **not** installed by default and must be added via the **Library Manager**.
+
+1. Go to **Tools** $\rightarrow$ **Manage Libraries...** (Ctrl+Shift+I).
+2. Search for and install the following **exact** libraries:
+
+| Library Name | Author | Purpose |
+| :--- | :--- | :--- |
+| **M5Unified** | M5Stack | Core hardware abstraction (Screen, IMU, Power). |
+| **M5StickCPlus2** | M5Stack | Specific drivers for the Plus 2 model. |
+
+*Note: Libraries like `WiFi`, `WebServer`, and `LittleFS` are automatically installed with the ESP32 Board Support package (Step 2).*
+
+### 4. Flashing the Firmware
+
+use the `gait.ino` file for the Codebase.
+
+1. **Select Board**: Go to **Tools** $\rightarrow$ **Board** $\rightarrow$ **ESP32 Arduino** $\rightarrow$ **M5Stick-C-Plus2**.
+2. **Settings**:
+    * **Upload Speed**: 1500000 (1.5Mbps) for speed, or 115200 for reliability.
+    * **Partition Scheme**: Default (usually "Default 4MB with spiffs").
+3. **Connect**: Plug in your M5StickC Plus 2 via USB-C. Select the correct **Port**.
+4. **Upload**: Click the arrow button (→) to compile and flash.
+
+*Troubleshooting*: If upload fails, hold the small **BtnB** (Side button) while plugging in USB to enter Bootloader mode.
+
+---
+
 ## 📚 Evidence & Documentation Roadmap
 
 We provide full transparency into the math, code, and validation.
@@ -49,157 +96,9 @@ We provide full transparency into the math, code, and validation.
 | ![Drift](assets/proof_drift.png) | ![Logic](assets/proof_stance.png) | ![Stability](assets/proof_stability.png) |
 | *ZUPT vs Raw Integration* | *Gyroscope Thresholds* | *Healthy vs Ataxic Gait* |
 
-### 📄 [Read the Full Dissertation](dissertation.md)
-
-* **Proof of Concept**: Detailed derivation of the ZUPT algorithm.
-* **Math Validation**: Explains why the "Hybrid Engine" beats pure integration.
-* **Clinical Relevance**: Deep dive into Stroke/Parkinson's applications.
-
-### 📂 Source Code Guide
-
-* `firmware/main.cpp`: **The Core**. Contains the ZUPT loop, Madgwick Filter, and Multithreading logic.
-* `web_page.h`: **The Dashboard**. Source for the HTML5/JS Web Interface stored in flash memory.
-* `assets/`: Contains visual proofs and demos.
-
 ---
 
-## 🛠️ Repository Guide (Getting Started)
-
-This repository contains the complete firmware and web interface source code.
-
-### Prerequisites
-
-* **VS Code** with **PlatformIO** Extension.
-* **M5StickC Plus 2** Device.
-
-### Installation Steps
-
-1. **Clone the Repo**:
-
-    ```bash
-    git clone https://github.com/llMr-Sweetll/gait.git
-    ```
-
-2. **Open in PlatformIO**:
-    * File -> Open Folder -> `gaitos/`
-    * Wait for PlatformIO to initialize project.
-3. **Upload Firmware**:
-    * Connect device via USB-C.
-    * Click the **Right Arrow (Upload)** icon in the footer.
-4. **Upload Filesystem (SPIFFS/LittleFS)**:
-    * Click the **PlatformIO Alien Head** icon.
-    * Navigate to `Project Tasks -> M5StickC -> Platform -> Upload Filesystem Image`.
-    * *Note: This uploads the web dashboard (`web_page.h` logic).*
-
----
-
-## � Comprehensive User Manual
-
-**GaitOS** is a precision instrument. Correct usage is critical for medical-grade data.
-
-### Phase 1: Preparation & Mounting
-
-**The Golden Rule**: The sensor must move EXACTLY as your foot moves. Any wobble adds noise.
-
-1. **Select the Limb**: Always attach to the **Heavily Affected / Weaker** leg (e.g., the side with Foot Drop).
-2. **Placement**:
-    * **Option A (Instep)**: Top of the shoe, under the laces. (Best for Trajectory).
-    * **Option B (Lateral)**: Outside of the ankle, strapped to the skin/sock. (Best for Angles).
-3. **Orientation**:
-    * **USB Port** $\rightarrow$ Pointing towards **HEEL**.
-    * **Screen** $\rightarrow$ Facing **UP** (if on instep) or **OUT** (if on ankle).
-
-    ```text
-       [ Leg ]
-          |
-       [Ankle] ---[ Device ] (Screen Facing OUT)
-          |
-       [ Foot ]
-    ```
-
-### Phase 2: Calibration (The "Double-Tap")
-
-Temperature and power-on transients affect the gyroscope. You must zero the bias before *every* walking session.
-
-1. Place the foot **flat on the ground**. Stand perfectly still.
-2. On the Device, navigate to `Settings` -> `Zero Sensors`.
-3. **FREEZE**. Do not breathe heavily or wiggle toes for 2 seconds.
-4. Wait for the green **"Precision Zeroed"** confirmation.
-
-### Phase 3: Data Collection
-
-#### Mode A: Real-Time Biofeedback (Therapy Mode)
-
-* **Goal**: Patient self-correction of gait.
-* **Steps**:
-    1. Connect to the Device WiFi:
-        * **SSID**: `GAIT-LOGGER`
-        * **Password**: `circumduct123`
-    2. Open Browser to `http://192.168.4.1`.
-    3. Strap phone to patient's belt or treadmill console.
-    4. Patient watches the **HFC Index** and **Trajectory** live.
-    5. **Instruction**: "Try to keep the HFC number below 30."
-
-#### Mode B: Clinical Logging (Research Mode)
-
-* **Goal**: Collecting CSV data for analysis.
-* **Steps**:
-    1. Press **Main Button (A)** to START recording (Red LED blinks).
-    2. Perform the walking test (e.g., **10-Meter Walk Test**).
-    3. Press **Main Button (A)** to STOP.
-    4. Download `gait_log.csv` from the Web Dashboard.
-
-### Phase 4: Understanding your Data (Metrics)
-
-| Metric | Definition | Healthy Range | Pathological Sign |
-| :--- | :--- | :--- | :--- |
-| **Cadence (CAD)** | Steps per minute | 90 - 120 SPM | < 60 SPM (Bradykinesia) |
-| **Stability (SI)** | Rhythm smoothness | > 90% | < 60% (Ataxic / Vibration) |
-| **Clearance ($P_z$)** | Max foot height | 2cm - 5cm | < 1cm (Shuffling / Disc Drag) |
-| **Hip-Coupling (HFC)** | Compensation Index | 10 - 20 (Idx) | > 40 (Hip Hiking Compensation) |
-
----
-
----
-
-## 🛠️ Installation & Flashing Guide (Arduino IDE)
-
-To bring GaitOS to life on your **M5StickC Plus 2**, follow these exact steps.
-
-### Step 1: Install Arduino IDE
-
-Download and install the latest **Arduino IDE 2.3+** from [arduino.cc](https://www.arduino.cc/en/software).
-
-### Step 2: Configure Board Manager
-
-1. Open Arduino IDE.
-2. Go to **File** -> **Preferences**.
-3. In "Additional Boards Manager URLs", paste:
-    `https://dl.espressif.com/dl/package_esp32_index.json`
-4. Go to **Tools** -> **Board** -> **Boards Manager**.
-5. Search for **ESP32** and install "esp32 by Espressif Systems" (Version 2.0.14 or later).
-
-### Step 3: Install Required Libraries
-
-Go to **Tools** -> **Manage Libraries** and install the following:
-
-1. **M5StickCPlus2** (by M5Stack) - *Critical for display/IMU.*
-2. **M5Unified** (by M5Stack) - *Unified driver layer.*
-3. **ArduinoJSON** (by Benoit Blanchon) - *Optional, if using advanced JSON features.*
-
-### Step 4: Flash the Firmware
-
-1. Open the file `gait/gait.ino` from this repository.
-2. **Select Board**:
-    * **Tools** -> **Board** -> **M5Stack** -> **M5StickCPlus2**.
-3. **USB Mode**: Ensure "USB CDC On Boot" is Enabled (usually default).
-4. **Partition Scheme**: Select **"Default 4MB with Spiffs"** (or Flat).
-5. Connect your M5StickC via USB-C.
-6. Click **Upload (➡️)**.
-
-*Troubleshooting*: If upload fails, hold the small **BtnB** (Side button) while plugging in USB to enter Bootloader mode.
-
----
+## 🔬 Scientific Principles (The "Hybrid Engine")
 
 GaitOS V13 uses a **Strapdown Inertial Navigation System (SINS)** aided by **Zero Velocity Updates (ZUPT)**.
 
