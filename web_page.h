@@ -93,6 +93,22 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="metric-label">Stability</div>
             <div class="metric-val" style="color:var(--struct)"><span id="m-stab">100</span><span class="metric-unit">%</span></div>
         </div>
+        <div class="card">
+        <div class="metric-label">STABILITY INDEX</div>
+        <div class="metric-value">
+          <span id="stab">--</span><span class="unit">%</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="metric-label">HIP-FOOT COUPLE (HFC)</div>
+        <div class="metric-value">
+          <span id="hfc">--</span><span class="unit metric-small">°Idx</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="metric-label">PHASE</div>
+        <div class="metric-value" id="phase">--</div>
+      </div>
         <div class="metric">
             <div class="metric-label">Distance</div>
             <div class="metric-val"><span id="m-dist">0.0</span> <span class="metric-unit">m</span></div>
@@ -204,7 +220,15 @@ const char index_html[] PROGMEM = R"rawliteral(
             document.getElementById('m-cad').innerText = d.cad.toFixed(0); // NEW
             document.getElementById('m-stab').innerText = d.stab.toFixed(0); // NEW
             
-            // Color logic for Stability
+            // HFC Logic
+            document.getElementById("hfc").innerText = d.hfc.toFixed(0);
+
+            // Stability Logic
+            const stab = document.getElementById("stab");
+            stab.innerText = d.stab.toFixed(0);
+            stab.style.color = d.stab > 80 ? "#00ff00" : (d.stab > 50 ? "orange" : "red");
+
+            // Color logic for Stability (for m-stab)
             const stabEl = document.getElementById('m-stab').parentElement;
             if(d.stab > 80) stabEl.style.color = 'var(--struct)';
             else if(d.stab > 50) stabEl.style.color = 'var(--warn)';

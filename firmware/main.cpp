@@ -36,7 +36,6 @@ const float MIN_SWING_ACCEL = 1.2f;    // Must accelerat
 #include <numeric>
 #include <vector>
 
-
 // --- WOZNIAK: CONSTANTS & MEMORY OPTIMIZATION ---
 #define SAMPLE_RATE_HZ 100
 #define DT_SEC 0.01f
@@ -116,6 +115,11 @@ void updateDisplay() {
 
   // Metrics Grid
   M5.Lcd.setFont(&fonts::FreeSans9pt7b);
+  // Hip-Foot Coupling (Proxy Metric)
+  float hip = calculateHipProbe();
+  M5.Lcd.setTextColor(MAGENTA);
+  M5.Lcd.setCursor(10, 180);
+  M5.Lcd.printf("HFC: %.0f", hip);
 
   // Cadence
   M5.Lcd.setTextColor(CYAN);
@@ -134,9 +138,15 @@ void updateDisplay() {
 
 // --- WOZNIAK: CORE ALGORITHM ---
 void ZUPT_INS_Update() {
-  // 1. ZUPT DETECTION (The "Stance Logic" Proof)
+  // 1. ZUPT DETECTION (The "Nature-Grade" Logic)
+  // Ref: Nilsson et al. (2014) - Stance requires BOTH low rotation AND low
+  // acceleration.
   float gMag = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ);
-  bool stanceDetected = (gMag < ZUPT_THRESH_DPS);
+  float aMag = sqrt(accX * accX + accY * accY + accZ * accZ);
+
+  // Stance Condition: Gyro < 40dps AND Accel approx 1g (Linear Accel < 0.2g)
+  bool stanceDetected =
+      (gMag < ZUPT_THRESH_DPS) && (abs(aMag - 1.0f) < ZUPT_ACCEL_G);
 
   if (stanceDetected) {
     // Zero Velocity Update
@@ -626,17 +636,7 @@ void LauncherApp::onBtnA() {
 // =============================================================================
 
 void setupAPI() {
-  server.on("/api/status", HTTP_GET, []() {
-    char buf[256];
-    // V13 UPDATE: Added 'cad', 'stab', 'is_stat'
-    snprintf(buf, sizeof(buf),
-             "{\"recording\":%d,\"step_count\":%lu,\"dist_m\":%.1f,\"phase\":%"
-             "d,\"px\":%.3f,\"pz\":%.3f,\"pitch\":%.1f,\"cad\":%.1f,\"stab\":%."
-             "1f,\"is_stat\":%d}",
-             isRecording, stepCount, distanceTotal, currentPhase, pos.x, pos.z,
-             pitch, cadence, stabilityIndex, isStationary);
-    server.send(200, "application/json", buf);
-  });
+  server.on("/api/status", HTTP_GET, []() { getStatusJSON(); });
 
   server.on("/api/record/start", HTTP_POST, []() {
     if (!isRecording) {

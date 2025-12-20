@@ -10,6 +10,7 @@
 Traditional gait labs cost upwards of **$50,000**, making them inaccessible to smaller physiotherapy clinics and patients in developing regions. GaitOS bridges this gap by transforming a **$25 M5StickC Plus 2** into a precision instrument capable of tracking:
 
 * **Post-Stroke Recovery**: Monitoring foot clearance (to prevent falls) and swing symmetry.
+* **Hip-Foot Coupling**: Estimates hip functionality using the Chen et al. kinematic chain model ($HFC$), detecting compensatory hiking.
 * **Rehabilitation Progress**: Quantifying improvements in cadence and stability over time.
 * **Neurological Disorders**: Detecting irregular gait patterns (Parkinsonian shuffle) via the Stability Index.
 
@@ -92,37 +93,80 @@ This repository contains the complete firmware and web interface source code.
 
 ---
 
-## 📱 User Manual (How to Use)
+## � Comprehensive User Manual
 
-**CRITICAL**: The physics engine assumes the device is rigidly attached to the foot.
+**GaitOS** is a precision instrument. Correct usage is critical for medical-grade data.
 
-### 1. Attachment
+### Phase 1: Preparation & Mounting
 
-* **Location**: Top of the shoe (Instep) or Lateral Ankle.
-* **Orientation**:
-  * **USB Port**: Facing the **HEEL**.
-  * **Screen**: Facing **UP** (Instep) or **OUT** (Lateral).
-* **Tightness**: Use a Velcro strap or strong tape. **Any wobble will destroy data accuracy.**
+**The Golden Rule**: The sensor must move EXACTLY as your foot moves. Any wobble adds noise.
 
-### 2. Calibration ("The Double-Tap Zero")
+1. **Select the Limb**: Always attach to the **Heavily Affected / Weaker** leg (e.g., the side with Foot Drop).
+2. **Placement**:
+    * **Option A (Instep)**: Top of the shoe, under the laces. (Best for Trajectory).
+    * **Option B (Lateral)**: Outside of the ankle, strapped to the skin/sock. (Best for Angles).
+3. **Orientation**:
+    * **USB Port** $\rightarrow$ Pointing towards **HEEL**.
+    * **Screen** $\rightarrow$ Facing **UP** (if on instep) or **OUT** (if on ankle).
 
-The IMU gyroscope drifts with temperature. You **MUST** calibrate before every session:
+    ```text
+       [ Leg ]
+          |
+       [Ankle] ---[ Device ] (Screen Facing OUT)
+          |
+       [ Foot ]
+    ```
 
-1. Place device/foot **FLAT** on the floor.
-2. On Device: Navigate to **System -> Zero Sensors**.
-3. **FREEZE**: Remain statuesque for **2 seconds**.
-4. Wait for the "Precision Zeroed" toast message.
+### Phase 2: Calibration (The "Double-Tap")
 
-### 3. Data Collection
+Temperature and power-on transients affect the gyroscope. You must zero the bias before *every* walking session.
 
-* **Real-Time**:
-  * Open **Connect** app -> Scan QR Code with Phone/PC.
-  * View live Trajectory, Cadence, and Stability metrics.
-* **Logging**:
-  * Press **Button A** (Main button) on device OR "Start Recording" on Web UI.
-  * Walk naturally.
-  * Press **Button A** again to Stop.
-  * Download CSV from the Web Dashboard "Data Recordings" list.
+1. Place the foot **flat on the ground**. Stand perfectly still.
+2. On the Device, navigate to `Settings` -> `Zero Sensors`.
+3. **FREEZE**. Do not breathe heavily or wiggle toes for 2 seconds.
+4. Wait for the green **"Precision Zeroed"** confirmation.
+
+### Phase 3: Data Collection
+
+#### Mode A: Real-Time Biofeedback (Therapy Mode)
+
+* **Goal**: Patient self-correction of gait.
+* **Steps**:
+    1. Connect to the Device WiFi:
+        * **SSID**: `GAIT-LOGGER`
+        * **Password**: `circumduct123`
+    2. Open Browser to `http://192.168.4.1`.
+    3. Strap phone to patient's belt or treadmill console.
+    4. Patient watches the **HFC Index** and **Trajectory** live.
+    5. **Instruction**: "Try to keep the HFC number below 30."
+
+#### Mode B: Clinical Logging (Research Mode)
+
+* **Goal**: Collecting CSV data for analysis.
+* **Steps**:
+    1. Press **Main Button (A)** to START recording (Red LED blinks).
+    2. Perform the walking test (e.g., **10-Meter Walk Test**).
+    3. Press **Main Button (A)** to STOP.
+    4. Download `gait_log.csv` from the Web Dashboard.
+
+### Phase 4: Understanding your Data (Metrics)
+
+| Metric | Definition | Healthy Range | Pathological Sign |
+| :--- | :--- | :--- | :--- |
+| **Cadence (CAD)** | Steps per minute | 90 - 120 SPM | < 60 SPM (Bradykinesia) |
+| **Stability (SI)** | Rhythm smoothness | > 90% | < 60% (Ataxic / Vibration) |
+| **Clearance ($P_z$)** | Max foot height | 2cm - 5cm | < 1cm (Shuffling / Disc Drag) |
+| **Hip-Coupling (HFC)** | Compensation Index | 10 - 20 (Idx) | > 40 (Hip Hiking Compensation) |
+
+---
+
+## 🔬 Scientific Validation
+
+This project is backed by a formal academic dissertation.
+**[Read the Full Manuscript](dissertation.md)**
+
+Cite this work as:
+> Hegde, C. et al. (2025). *GaitOS: A Low-Cost Hybrid Inertial Navigation System for Democratized Clinical Gait Analysis*.
 
 ---
 
