@@ -66,9 +66,8 @@ These libraries are **not** installed by default and must be added via the **Lib
 | Library Name | Author | Purpose |
 | :--- | :--- | :--- |
 | **M5Unified** | M5Stack | Core hardware abstraction (Screen, IMU, Power). |
-| **M5StickCPlus2** | M5Stack | Specific drivers for the Plus 2 model. |
 
-*Note: Libraries like `WiFi`, `WebServer`, and `LittleFS` are automatically installed with the ESP32 Board Support package (Step 2).*
+*Note: The `M5StickCPlus2` library is NOT required as `M5Unified` handles all hardware.*
 
 ### 4. Flashing the Firmware
 

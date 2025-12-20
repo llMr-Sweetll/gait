@@ -32,7 +32,7 @@ const float MIN_SWING_ACCEL = 1.2f;    // Must accelerat
 //  UI.
 // ===================================================================================
 
-#include <M5StickCPlus2.h>
+// #include <M5StickCPlus2.h> // Removed: Use M5Unified instead
 #include <numeric>
 #include <vector>
 
