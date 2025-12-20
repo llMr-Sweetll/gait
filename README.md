@@ -197,7 +197,6 @@ The downloaded CSV contains raw 100Hz data.
 | `px` | m | Position X (Forward displacement within step). |
 | `pz` | m | Position Z (Vertical Clearance). |
 | `phase` | 0/1 | Gait Phase (0=Stance, 1=Swing). |
-| `roll, pitch, yaw` | deg | 3D Orientation (Euler Angles). |
 | `cadence` | spm | Instantaneous Steps Per Minute. |
 | `stability` | % | Stability Index (0-100). |
 | `hfc` | idx | Hip-Foot Coupling Index. |

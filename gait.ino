@@ -11,8 +11,6 @@
 #include <M5Unified.h>
 #include <WebServer.h>
 #include <WiFi.h>
-#include <numeric>
-#include <vector>
 
 #include "web_page.h"
 
@@ -136,7 +134,7 @@ void ZUPT_INS_Update(float dt) {
     maxSwing = abs(accZ);
 
   if (isStance && maxSwing > MIN_SWING_ACCEL &&
-      (millis() - lastStepTime > 300)) {
+      (millis() - lastStepTime > MIN_STEP_TIME_MS)) {
     // Heel Strike Event Just Happened (or transition to stance)
     unsigned long dur = millis() - lastStepTime;
     lastStepTime = millis();
@@ -263,7 +261,7 @@ public:
     isRecording = !isRecording;
     if (isRecording) {
       logFile = LittleFS.open("/log_" + String(millis()) + ".csv", FILE_WRITE);
-      logFile.println("t,ax,ay,az,gx,gy,gz,px,pz");
+      logFile.println("t,ax,ay,az,gx,gy,gz,px,pz,phase,cadence,stability,hfc");
       showToast("Rec Start");
     } else {
       if (logFile)
@@ -412,10 +410,23 @@ void setup() {
   // Tuning API
   server.on("/api/config", HTTP_POST, handleConfig);
 
+  // Calibration API
+  server.on("/api/calibrate", HTTP_POST, []() {
+    pos = {0, 0, 0};
+    vel = {0, 0, 0};
+    distanceTotal = 0;
+    stepCount = 0;
+    currentCadence = 0;
+    stabilityIndex = 100.0f;
+    showToast("Zeroed!", 1000);
+    server.send(200);
+  });
+
   // Basic API for Rec
   server.on("/api/record/start", HTTP_POST, []() {
     isRecording = true;
-    logFile = LittleFS.open("/webrec.csv", FILE_WRITE);
+    logFile = LittleFS.open("/webrec_" + String(millis()) + ".csv", FILE_WRITE);
+    logFile.println("t,ax,ay,az,gx,gy,gz,px,pz,phase,cadence,stability,hfc");
     server.send(200);
   });
   server.on("/api/record/stop", HTTP_POST, []() {
@@ -453,8 +464,10 @@ void loop() {
     ZUPT_INS_Update(dt);
 
     if (isRecording && logFile) {
-      logFile.printf("%lu,%.2f,%.2f,%.2f,%.2f,%.2f\n", now, accX, pos.z,
-                     stabilityIndex, stepCount);
+      logFile.printf(
+          "%lu,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.4f,%.4f,%d,%.1f,%.1f,%.2f\n",
+          now, accX, accY, accZ, gyroX, gyroY, gyroZ, pos.x, pos.z,
+          isStance ? 0 : 1, currentCadence, stabilityIndex, hipFootCoupling);
     }
   }
 
