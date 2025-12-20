@@ -1,6 +1,6 @@
 # GaitOS V13: The Open Source Clinical Gait Analysis System
 
-![System Demo](assets/gaitos_dashboard_demo_1766061080819.webp)
+![System Demo](assets/demo.webp)
 
 > **"Democratizing Mobility Research, One Step at a Time."**
 
