@@ -52,8 +52,8 @@ One of the challenges in single-sensor gait analysis is estimating proximal join
 
 GaitOS is not merely a logger; it is a biofeedback loop. The metrics are visualized in real-time on the device's OLED screen and transmitted via WebSocket to a clinical dashboard.
 
-![Figure 3: System Overview](assets/gaitos_system_overview_1766060912344.png)
-**Fig. 3 | System Architecture.** The ESP32 processes sensor fusion on-edge (100Hz) and transmits derived metrics (Cadence, $HFC$, $SI$) to a web-based dashboard for clinician review.
+![Figure 3: System Overview](assets/gaitos_system_overview.png)
+**Fig. 3 | System Architecture.** The ESP32 processes sensor fusion on-edge (100Hz) and transmits derived metrics (Cadence, HFC, SI) to a web-based dashboard for clinician review.
 
 ---
 
@@ -90,31 +90,39 @@ We utilize a Strapdown Inertial Navigation System (SINS) operating in the Naviga
 
 #### 4.2.1 Attitude Estimation (Madgwick Filter)
 
-We fuse Accelerometer ($\mathbf{a}$) and Gyroscope ($\boldsymbol{\omega}$) data to compute the orientation quaternion $\mathbf{q}$. We employ Madgwick's gradient descent algorithm [17](#ref17), which minimizes the error function $f$:
-$$
-\mathbf{q}_{k} = \mathbf{q}_{k-1} + \left( \dot{\mathbf{q}}_{\omega} - \beta \frac{\nabla f}{\|\nabla f\|} \right) \Delta t
-$$
-Where $\beta=0.5$ is the divergence gain. This allows us to isolate the gravity vector $\mathbf{g}$.
+We fuse Accelerometer (**a**) and Gyroscope (**ω**) data to compute the orientation quaternion **q**. We employ Madgwick's gradient descent algorithm [17](#ref17), which minimizes the error function *f*:
+
+```math
+q_k = q_{k-1} + \left( \dot{q}_\omega - \beta \frac{\nabla f}{\|\nabla f\|} \right) \Delta t
+```
+
+Where β=0.5 is the divergence gain. This allows us to isolate the gravity vector **g**.
 
 #### 4.2.2 Linear Acceleration & ZUPT
 
-Dynamic linear acceleration $\mathbf{a}^n$ is computed by rotating body-frame measuremnts and removing gravity:
-$$
-\mathbf{a}^n = \mathbf{R}(\mathbf{q}) \cdot \mathbf{a}^b - [0, 0, 9.81]^T
-$$
+Dynamic linear acceleration **aⁿ** is computed by rotating body-frame measurements and removing gravity:
+
+```math
+a^n = R(q) \cdot a^b - [0, 0, 9.81]^T
+```
+
 Velocity is the integral of acceleration. To cancel drift, we apply the **Zero-Velocity Update (ZUPT)**. We classify "Stance Phase" when:
-$$
-(\text{Gyro} < 40^\circ/s) \land (\text{Accel}_{var} < 0.2g)
-$$
-During Stance, we force $\mathbf{v}_{k} = [0,0,0]^T$, resetting the integration error [18](#ref18).
+
+```math
+(\text{Gyro} < 40°/s) \land (\text{Accel}_{var} < 0.2g)
+```
+
+During Stance, we force **v_k = [0,0,0]ᵀ**, resetting the integration error [18](#ref18).
 
 #### 4.2.3 Hip-Foot Coupling ($HFC$) Model
 
-We estimate proximal hip compensatory strategies ($HFC$) from distal kinematics using a Kinematic Chain constraint adapted from Chen et al. [19](#ref19):
-$$
+We estimate proximal hip compensatory strategies (HFC) from distal kinematics using a Kinematic Chain constraint adapted from Chen et al. [19](#ref19):
+
+```math
 HFC(t) = \alpha \cdot \theta_{pitch}(t) + \gamma \cdot \int_{t_{swing}} v_x(t) dt
-$$
-High forward velocity ($v_x$) combined with low pitch change ($\theta_{pitch}$) indicates "Vaulting" or "Hiking" rather than normal flexion [20](#ref20).
+```
+
+High forward velocity (v_x) combined with low pitch change (θ_pitch) indicates "Vaulting" or "Hiking" rather than normal flexion [20](#ref20).
 
 ### 4.3 Data Availability
 
