@@ -363,6 +363,40 @@ void handleConfig() {
   server.send(200, "application/json", json);
 }
 
+// --- LOGS API ---
+void handleLogsList() {
+  File root = LittleFS.open("/");
+  String output = "[";
+  if (root) {
+    File file = root.openNextFile();
+    bool first = true;
+    while (file) {
+      String name = String(file.name());
+      if (name.endsWith(".csv")) {
+        if (!first)
+          output += ",";
+        output +=
+            "{\"name\":\"" + name + "\",\"size\":" + String(file.size()) + "}";
+        first = false;
+      }
+      file = root.openNextFile();
+    }
+  }
+  output += "]";
+  server.send(200, "application/json", output);
+}
+
+// --- FILE DOWNLOAD ---
+bool handleFileRead(String path) {
+  if (LittleFS.exists(path)) {
+    File file = LittleFS.open(path, "r");
+    server.streamFile(file, "text/csv");
+    file.close();
+    return true;
+  }
+  return false;
+}
+
 void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
@@ -389,6 +423,13 @@ void setup() {
     if (logFile)
       logFile.close();
     server.send(200);
+  });
+
+  // NEW: Logs & Downloads
+  server.on("/api/logs", HTTP_GET, handleLogsList);
+  server.onNotFound([]() {
+    if (!handleFileRead(server.uri()))
+      server.send(404, "text/plain", "404: Not Found");
   });
 
   server.begin();
