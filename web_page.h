@@ -10,7 +10,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GaitOS V13</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- NO EXTERNAL DEPENDENCIES: Zero-Load-Time Dashboard -->
     <style>
         :root {
             --bg: #000000;
@@ -38,6 +38,9 @@ const char index_html[] PROGMEM = R"rawliteral(
         .dot.active { background: var(--danger); box-shadow: 0 0 8px var(--danger); animation: pulse 2s infinite; }
         
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        /* HERO CANVAS */
+        #chart-canvas { width: 100%; height: 100%; border-radius: 12px; background: #242426; }
 
         /* METRICS STRIP */
         .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
@@ -78,8 +81,9 @@ const char index_html[] PROGMEM = R"rawliteral(
             <h2>Step Trajectory (Z vs X)</h2>
             <div class="status-pill"><div id="rec-dot" class="dot"></div> <span id="status-text">IDLE</span></div>
         </div>
-        <div style="flex:1; position:relative; width:100%;">
-            <canvas id="chart-main"></canvas>
+        <div style="flex:1; position:relative; width:100%; padding:5px;">
+             <!-- REPLACED: Chart.js Canvas with Raw Canvas -->
+            <canvas id="chart-canvas"></canvas>
         </div>
     </div>
 
@@ -93,22 +97,14 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="metric-label">Stability</div>
             <div class="metric-val" style="color:var(--struct)"><span id="m-stab">100</span><span class="metric-unit">%</span></div>
         </div>
-        <div class="card">
-        <div class="metric-label">STABILITY INDEX</div>
-        <div class="metric-value">
-          <span id="stab">--</span><span class="unit">%</span>
+        <div class="metric">
+            <div class="metric-label">Stability Index</div>
+             <div class="metric-val"><span id="stab">--</span><span class="metric-unit">%</span></div>
         </div>
-      </div>
-      <div class="card">
-        <div class="metric-label">HIP-FOOT COUPLE (HFC)</div>
-        <div class="metric-value">
-          <span id="hfc">--</span><span class="unit metric-small">°Idx</span>
+        <div class="metric">
+            <div class="metric-label">HFC (Hip)</div>
+            <div class="metric-val"><span id="hfc">--</span><span class="metric-unit">Idx</span></div>
         </div>
-      </div>
-      <div class="card">
-        <div class="metric-label">PHASE</div>
-        <div class="metric-value" id="phase">--</div>
-      </div>
         <div class="metric">
             <div class="metric-label">Distance</div>
             <div class="metric-val"><span id="m-dist">0.0</span> <span class="metric-unit">m</span></div>
@@ -155,39 +151,98 @@ const char index_html[] PROGMEM = R"rawliteral(
 </div>
 
 <script>
-    // --- V13 LOW LATENCY LOGIC ---
+    // --- V13 OFFLINE-FIRST LOGIC ---
     let recording = false;
-    const MAX_PTS = 150; // Reduced for performance
+    const MAX_PTS = 200; 
+    let trajectory = []; // Ring buffer in JS
 
-    // Chart Setup
-    Chart.defaults.font.family = '-apple-system';
-    Chart.defaults.color = '#86868b';
-    const ctx = document.getElementById('chart-main').getContext('2d');
-    const chart = new Chart(ctx, {
-        type: 'scatter',
-        data: { 
-            datasets: [{ 
-                data: [], 
-                borderColor: '#0a84ff', 
-                backgroundColor: 'rgba(10, 132, 255, 0.15)', 
-                borderWidth: 3,
-                pointRadius: 0,
-                showLine: true,
-                fill: true,
-                tension: 0.4
-            }] 
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: false, // CRITICAL FOR LATENCY
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { grid: { color: '#2c2c2e' }, ticks:{display:false} }, 
-                y: { grid: { color: '#2c2c2e' }, min: 0, max: 0.4 } // Fixed scale for stability
-            }
+    // Canvas Setup
+    const canvas = document.getElementById('chart-canvas');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+
+    function resize() {
+        width = canvas.parentElement.clientWidth;
+        height = canvas.parentElement.clientHeight;
+        canvas.width = width;
+        canvas.height = height;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Drawing Loop (Manual Charting)
+    function drawChart() {
+        // Clear
+        ctx.fillStyle = "#242426";
+        ctx.fillRect(0, 0, width, height);
+
+        // Grid Lines
+        ctx.strokeStyle = "#2c2c2e";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, height * 0.5); ctx.lineTo(width, height * 0.5); // Horizon
+        ctx.stroke();
+
+        // Plot Trajectory
+        if (trajectory.length < 2) return;
+
+        ctx.strokeStyle = "#0a84ff";
+        ctx.lineWidth = 3;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+
+        // SCALING: X vs Z (Clearance)
+        // Y-axis: 0 to 40cm (0.4m)
+        // X-axis: Sliding window
+        
+        // Find most recent X to stick to right side?
+        // Let's just plot abstract index or relative X
+        // Better: Map px (meters) to x-pixels, pz (meters) to y-pixels
+        
+        const scaleY = height / 0.4; // 0.4m = full height
+        const scaleX = width / 2.0; // 2m wide window? Or just auto-scroll
+        
+        // Auto-scroll logic: recenter on latest point
+        const lastP = trajectory[trajectory.length - 1];
+        const centerOffsetX = (width * 0.8) - (lastP.x * 100); // Keep latest at 80% width?
+        // Actually, simpler: Just plot sliding window of last N points,
+        // Mapping index to X is easiest for a strip chart, but this is a SPACE plot (Z vs X).
+        // Let's iterate relative to the head.
+        
+        ctx.beginPath();
+        for (let i = 0; i < trajectory.length; i++) {
+            const p = trajectory[i];
+            
+            // X mapping: Relative to the last point to create a sliding effect
+            // We want last point at width * 0.9
+            const relativeX = p.x - lastP.x; // 0 at last point, negative for history
+            
+            // Layout: 1 meter range visible
+            // 1 meter = width pixels?
+            const pixX = (width * 0.8) + (relativeX * (width / 2)); // 2m field of view
+            
+            // Y mapping: Bottom is 0
+            const pixY = height - (p.y * scaleY);
+            
+            if (i === 0) ctx.moveTo(pixX, pixY);
+            else ctx.lineTo(pixX, pixY);
         }
-    });
+        ctx.stroke();
+        
+        // Draw Fill (Gradient-ish)
+        ctx.lineTo(width, height);
+        ctx.lineTo(0, height);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(10, 132, 255, 0.1)";
+        ctx.fill();
+        
+        // Draw Head Dot
+        const lastY = height - (lastP.y * scaleY);
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(width * 0.8, lastY, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
 
     async function api(endpoint) { await fetch('/api/'+endpoint, {method:'POST'}); sync(); }
     
@@ -198,7 +253,6 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     async function sync() {
         try {
-            // Tight Polling Loop
             const r = await fetch('/api/status');
             const d = await r.json();
             
@@ -206,42 +260,38 @@ const char index_html[] PROGMEM = R"rawliteral(
             recording = d.recording;
             document.getElementById('status-text').innerText = recording ? "RECORDING" : "IDLE";
             document.getElementById('rec-dot').className = recording ? "dot active" : "dot";
-            
             document.getElementById('btn-rec').style.display = recording ? 'none' : 'block';
             const stopBtn = document.getElementById('btn-stop');
             if(recording) { stopBtn.classList.add('active'); stopBtn.classList.add('btn-danger'); }
             else { stopBtn.classList.remove('active'); stopBtn.classList.remove('btn-danger'); }
 
-            // 2. Metrics (DOM updates are fast)
+            // 2. Metrics
             document.getElementById('m-steps').innerText = d.step_count;
             document.getElementById('m-dist').innerText = d.dist_m.toFixed(1);
             document.getElementById('m-clear').innerText = (d.pz * 100).toFixed(1);
             document.getElementById('m-pitch').innerText = d.pitch.toFixed(0);
-            document.getElementById('m-cad').innerText = d.cad.toFixed(0); // NEW
-            document.getElementById('m-stab').innerText = d.stab.toFixed(0); // NEW
+            document.getElementById('m-cad').innerText = d.cad.toFixed(0);
+            document.getElementById('m-stab').innerText = d.stab.toFixed(0);
             
-            // HFC Logic
             document.getElementById("hfc").innerText = d.hfc.toFixed(0);
-
-            // Stability Logic
-            const stab = document.getElementById("stab");
-            stab.innerText = d.stab.toFixed(0);
-            stab.style.color = d.stab > 80 ? "#00ff00" : (d.stab > 50 ? "orange" : "red");
-
-            // Color logic for Stability (for m-stab)
-            const stabEl = document.getElementById('m-stab').parentElement;
-            if(d.stab > 80) stabEl.style.color = 'var(--struct)';
-            else if(d.stab > 50) stabEl.style.color = 'var(--warn)';
-            else stabEl.style.color = 'var(--danger)';
+            
+            const stabEl = document.getElementById('stab');
+            stabEl.innerText = d.stab.toFixed(0);
+            const stabContainer = document.getElementById('m-stab').parentElement;
+            if(d.stab > 80) stabContainer.style.color = 'var(--struct)';
+            else if(d.stab > 50) stabContainer.style.color = 'var(--warn)';
+            else stabContainer.style.color = 'var(--danger)';
 
             document.getElementById('m-phase').innerText = d.phase ? "SWING" : "STANCE";
             document.getElementById('m-move').innerText = d.is_stat ? "STAT" : "MOVE";
             
-            // 3. Chart (Only update if changed to save cycles?)
-            // Actually, for trajectory, always push.
-            chart.data.datasets[0].data.push({x: d.px, y: d.pz});
-            if(chart.data.datasets[0].data.length > MAX_PTS) chart.data.datasets[0].data.shift();
-            chart.update('none'); // 'none' mode = No Animation = Instant
+            // 3. Chart Data
+            // Push {x, y}
+            trajectory.push({x: d.px, y: d.pz});
+            if(trajectory.length > MAX_PTS) trajectory.shift();
+            
+            // Render Frame
+            drawChart();
 
         } catch(e) {}
     }
@@ -253,7 +303,6 @@ const char index_html[] PROGMEM = R"rawliteral(
             const r = await fetch('/api/logs');
             const files = await r.json();
             el.innerHTML = '';
-            // Show newest first
             files.reverse().slice(0, 5).forEach(f => {
                 el.innerHTML += `
                     <div class="log-item">
@@ -268,7 +317,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         } catch(e) {}
     }
 
-    setInterval(sync, 100); // 10Hz High Speed Sync
+    setInterval(sync, 100); 
     fetchLogs();
 
 </script>

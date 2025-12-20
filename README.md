@@ -23,17 +23,61 @@ Unlike standard fitness trackers that only count steps, GaitOS tracks **3D Foot 
 | Component | Description | Est. Cost |
 | :--- | :--- | :--- |
 | **M5StickC Plus 2** | The core device (ESP32-PICO-D4 + MPU6886 IMU + Screen/Battery). | ~$25 USD |
-| **Velcro Strap** | To secure the device to the foot. | ~$2 USD |
+| **Velcro Strap** | 20mm width hook-and-loop strap (Watch strap style). | ~$2 USD |
 | **PC/Mac** | To flash the firmware initially. | N/A |
 | **Smartphone** | To access the Web Dashboard (No App required). | N/A |
 
-**Critical**: This software is optimized *specifically* for the **M5StickC Plus 2**. It may work on the older M5StickC (Non-Plus) but screen layout issues will occur.
+**Critical Compatibility Warning**:
+This software is optimized *specifically* for the **M5StickC Plus 2** (Yellow or Blue PCB).
+
+* ❌ **M5StickC (Original)**: NOT Supported (Screen is smaller, IMU is different).
+* ❌ **M5Atom / M5Stack Core**: NOT Supported (Form factor unsuitable for foot).
 
 ---
 
-## � Installation Guide (Developer Manual)
+## 👟 Device Mounting & Wearability (CRITICAL)
 
-Follow these steps precisely to build and look the firmware onto your device.
+The quality of data depends entirely on how well the device is mounted. If it wobbles, your data is garbage.
+
+### 1. Positioning the Device
+
+The M5StickC Plus 2 must be mounted on the **Lateral Aspect (Outside)** of the shoe or foot.
+
+* **Why?**: This location minimizes impact shock and provides the clearest signal for Foot Clearance (Z-Height).
+* **Location**: Just below the **Lateral Malleolus** (The bony bump on the outside of your ankle).
+* **Orientation**:
+  * **Screen**: Facing **OUTWARDS** (Away from your other foot).
+  * **USB Port**: Facing **BACKWARDS** (Towards your heel).
+  * **Button A (Big)**: Facing **FORWARD** (Towards your toes).
+
+```
+      ( Leg )
+        | |
+   [Ankle Bone]
+        | |      <--- [ M5StickC Device ]
+      __| |__         (Strap goes here)
+     /       \
+    |  Shoe   |
+    \_________/
+```
+
+### 2. Strapping Technique
+
+1. **Thread the Strap**: M5StickC has a "Watch Strap" hole on the back case. Thread a 20mm Velcro strap through it.
+2. **Tighten**: Wrap the strap around the mid-foot (instep). Pull it **TIGHT**.
+3. **Check**: Shake your foot. Does the device wobble independently of the shoe? If yes, tighten again. It must move *rigidly* with the foot.
+
+### 3. Footwear
+
+* **Best**: Sneakers/Trainers with laces (Strap goes over laces).
+* **Okay**: Barefoot (Strap directly on skin, might slip).
+* **Avoid**: Loose slippers, Flip-flops, or High heels.
+
+---
+
+## 💻 Installation Guide (Developer Manual)
+
+Follow these steps precisely to build and load the firmware onto your device.
 
 ### Step 1: Install Arduino IDE
 
@@ -64,7 +108,7 @@ The code relies on the `M5Unified` library to handle the screen, IMU, and power 
 
 ### Step 4: Configure & Flash
 
-1. Connect your M5StickC Plus 2 to your computer via USB-C.
+1. Connect your device to your computer via USB-C.
 2. **Select Board**: Go to **Tools** $\rightarrow$ **Board** $\rightarrow$ **ESP32 Arduino** $\rightarrow$ **M5Stick-C-Plus2**.
 3. **Upload Speed**: Select **1500000** (Fast) or **115200** (Reliable).
 4. **Open Code**: Open the `gait.ino` file from this repository.
@@ -75,15 +119,7 @@ The code relies on the `M5Unified` library to handle the screen, IMU, and power 
 
 ## 📖 User Manual: Clinical Workflow
 
-Once flashed, the device is a standalone tool.
-
-### Phase 1: Mounting
-
-* **Placement**: Strap the device to the **Lateral Aspect (Outside)** of the shoe/foot, just below the ankle bone.
-* **Orientation**: The screen must face **Outwards**, with the USB port facing **Backwards** (towards the heel).
-* **Tightness**: Ensure a snug fit. Any "wobble" relative to the foot will degrade data quality.
-
-### Phase 2: Connecting
+### Phase 1: Power & Connection
 
 1. **Turn On**: Hold Power (Side Button) for 2 seconds.
 2. **Connect WiFi**: On your Phone/Laptop, connect to the WiFi Network:
@@ -91,42 +127,40 @@ Once flashed, the device is a standalone tool.
     * Password: `circumduct123`
 3. **Open Dashboard**: Scan the QR code on the device screen (Select 'Net' app), or navigate to `http://192.168.4.1` in your browser.
 
-### Phase 3: Calibration
+### Phase 2: Sensor Zeroing (Calibration)
 
-**Essential Step**: MEMS sensors drift. You must zero them before every session.
+**Essential Step**: MEMS sensors drift with temperature. You must zero them before every session.
 
 1. Place the foot **flat on the ground** and hold extremely still.
 2. **On Device**: Scroll to `System` (BtnB) $\rightarrow$ Select `Zero Sensors` (BtnA).
 3. **On Web**: Click the **"Zero Sensors"** button.
-4. Wait 3 seconds for the "Precision Zeroed" toast message.
+4. Wait 3 seconds. Do not breathe heavily or wiggle toes.
+5. Wait for the "Precision Zeroed" message.
 
-### Phase 4: Recording a Session
+### Phase 3: Recording
 
 1. **Start**:
     * *Device*: Go to `Lab` app $\rightarrow$ Press BtnA (Red dot appears).
     * *Web*: Click **"Start Recording"**.
-2. **Walk**: Perform the clinical test (e.g., 10-Meter Walk Test, TUG, 6MWT).
+2. **Walk**: Perform the clinical test (e.g., 10-Meter Walk Test).
+    * Walk naturally.
+    * Avoid sudden stops or jumps (this confuses the ZUPT engine).
 3. **Monitor**: Watch the dashboard for:
     * **Trajectory**: Is the arc shape consistent?
     * **Stability**: Is it Green (>80%) or Red (<50%)?
-    * **HFC**: Is Hip Hiking detected?
 4. **Stop**: Press BtnA (Device) or "Stop" (Web).
 
----
-
-## 📊 Data Analysis & Export
-
-After recording, data is stored on the device's internal memory.
-
-### Downloading Data
+### Phase 4: Data Export
 
 1. On the Dashboard, scroll down to **"DATA RECORDINGS"**.
 2. Click **REFRESH LIST** to see your latest files.
-3. Click **DL** next to the file (e.g., `gait_100234.csv`) to download it to your computer.
+3. Click **DL** next to the file (e.g., `gait_100234.csv`) to download it.
 
-### CSV File Schema
+---
 
-The downloaded CSV contains raw 100Hz data ready for Python/Matlab analysis.
+## 📊 Data Dictionary (CSV Schema)
+
+The downloaded CSV contains raw 100Hz data.
 
 | Column | Unit | Description |
 | :--- | :--- | :--- |
@@ -140,6 +174,17 @@ The downloaded CSV contains raw 100Hz data ready for Python/Matlab analysis.
 | `cadence` | spm | Instantaneous Steps Per Minute. |
 | `stability` | % | Stability Index (0-100). |
 | `hfc` | idx | Hip-Foot Coupling Index. |
+
+---
+
+## 🔋 Battery & Safety Info
+
+* **Charging**: Use a standard USB-C cable (5V). Charge from a PC or low-power brick. Do **NOT** use high-wattage (65W+) laptop chargers as the device may not negotiate power correctly.
+* **Battery Life**: Approx 20-30 mins on full brightness with WiFi on.
+* **Safety**:
+  * Do not use in rain/puddles (Not waterproof).
+  * Check skin under the strap for irritation if analyzing long sessions.
+  * **Medical Disclaimer**: GaitOS is a research tool. It is **NOT** FDA/CE approved for medical diagnosis. Always consult a professional for clinical advice.
 
 ---
 
@@ -175,7 +220,7 @@ This quantifies "Arrhythmia" in walking, a key predictor of fall risk in Parkins
 | :--- | :--- | :--- |
 | **"M5StickCPlus2.h not found"** | Legacy library conflict. | Remove `M5StickCPlus2` lib. Use only `M5Unified`. |
 | **"Upload Failed"** | Device is sleeping or busy. | Hold Side Button (BtnB) while plugging in USB. |
-| **Trajectory Looks Crazy** | Sensors not zeroed. | Perform **Phase 3: Calibration** while perfectly still. |
+| **Trajectory Looks Crazy** | Sensors not zeroed. | Perform **Phase 2: Calibration** while perfectly still. |
 | **No "Steps" Counting** | Walking too soft/slow. | Stomp slightly harder. Threshold is `1.2g`. |
 | **WiFi Disconnects** | Power saving mode. | Keep the device screen ON (do not let it sleep). |
 
