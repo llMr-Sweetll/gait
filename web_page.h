@@ -8,318 +8,363 @@ const char index_html[] PROGMEM = R"rawliteral(
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GaitOS V13</title>
-    <!-- NO EXTERNAL DEPENDENCIES: Zero-Load-Time Dashboard -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>GaitOS Pro</title>
     <style>
         :root {
-            --bg: #000000;
-            --card: #1c1c1e;
-            --text: #f5f5f7;
-            --text-sub: #86868b;
-            --accent: #0a84ff;
-            --danger: #ff453a;
-            --struct: #32d74b;
-            --warn: #ff9f0a;
-            --shadow: 0 4px 20px rgba(0,0,0,0.5);
-            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --bg-grad: radial-gradient(circle at top left, #1a2a6c, #b21f1f, #fdbb2d);
+            --bg-solid: #000;
+            --glass: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: #ffffff;
+            --text-muted: rgba(255, 255, 255, 0.6);
+            --accent: #0A84FF;
+            --success: #32D74B;
+            --warn: #FF9F0A;
+            --danger: #FF453A;
+            --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, sans-serif;
         }
 
-        body { font-family: var(--font); margin: 0; padding: 15px; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
-        .container { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 15px; }
+        body {
+            font-family: var(--font-stack);
+            background: #000;
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            padding-bottom: 80px; /* Space for fab */
+            -webkit-font-smoothing: antialiased;
+        }
 
-        /* HERO SECTION */
-        .hero { background: var(--card); border-radius: 18px; padding: 15px; box-shadow: var(--shadow); position: relative; height: 320px; display:flex; flex-direction:column;}
-        .hero-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; height: 30px;}
-        .hero h2 { margin: 0; font-size: 1rem; font-weight: 600; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.5px; }
-        
-        .status-pill { background: #2c2c2e; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-sub); transition: 0.3s; }
-        .dot.active { background: var(--danger); box-shadow: 0 0 8px var(--danger); animation: pulse 2s infinite; }
+        /* Container */
+        .app-container {
+            max-width: 600px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Typography */
+        h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.5px; }
+        .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); font-weight: 600; }
+        .value { font-size: 28px; font-weight: 700; letter-spacing: -1px; }
+        .unit { font-size: 14px; font-weight: 500; color: var(--text-muted); margin-left: 2px; }
+
+        /* Components */
+        .card {
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        /* Header */
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .status-badge {
+            font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 20px;
+            background: rgba(255,255,255,0.1); color: var(--text-muted);
+            display: flex; align-items: center; gap: 6px;
+        }
+        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+        .live-dot.recording { background: var(--danger); box-shadow: 0 0 10px var(--danger); animation: pulse 2s infinite; }
         
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
-        /* HERO CANVAS */
-        #chart-canvas { width: 100%; height: 100%; border-radius: 12px; background: #242426; }
-
-        /* METRICS STRIP */
-        .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-        @media(max-width: 600px) { .metrics { grid-template-columns: 1fr 1fr; } }
+        /* Chart */
+        .chart-container { height: 260px; width: 100%; position: relative; }
+        canvas { width: 100%; height: 100%; display: block; }
         
-        .metric { background: var(--card); border-radius: 18px; padding: 15px; text-align: center; box-shadow: var(--shadow); }
-        .metric-label { font-size: 0.7rem; color: var(--text-sub); text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }
-        .metric-val { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.5px; }
-        .metric-unit { font-size: 0.8rem; color: var(--text-sub); font-weight: 500; }
+        /* Grid */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
 
-        /* CONTROLS */
-        .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-        button { 
-            background: var(--card); color: var(--text); border: none; padding: 14px; 
-            border-radius: 14px; font-size: 0.95rem; font-weight: 600; cursor: pointer; 
-            transition: all 0.2s; box-shadow: var(--shadow);
+        /* Buttons */
+        .btn {
+            width: 100%; padding: 16px; border: none; border-radius: 18px;
+            font-size: 16px; font-weight: 600; cursor: pointer;
+            transition: transform 0.1s;
         }
-        button:active { transform: scale(0.98); }
-        .btn-main { background: var(--accent); color: white; }
-        .btn-stop { background: var(--danger); color: white; opacity: 0.5; pointer-events: none; }
-        .btn-stop.active { opacity: 1; pointer-events: auto; }
-
-        /* LOGS */
-        .logs-box { background: var(--card); border-radius: 18px; padding: 15px; box-shadow: var(--shadow); min-height: 100px; }
-        .logs-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.8rem; font-weight: 600; color: var(--text-sub); }
-        .log-item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2c2c2e; font-size: 0.85rem; align-items: center; }
-        .log-item:last-child { border: none; }
-        .log-actions a { color: var(--accent); text-decoration: none; margin-left: 15px; font-weight: 500; }
+        .btn:active { transform: scale(0.96); }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-glass { background: rgba(255,255,255,0.1); color: white; }
         
+        /* Interactive Controls Area */
+        .action-bar {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 580px;
+            background: rgba(28, 28, 30, 0.9); backdrop-filter: blur(20px);
+            padding: 10px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.1);
+            display: flex; gap: 10px; z-index: 100;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        /* Logs List */
+        .log-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .log-item:last-child { border: none; }
+        .log-link { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 14px; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <!-- Row 1: Hero Trajectory -->
-    <div class="hero">
-        <div class="hero-header">
-            <h2>Step Trajectory (Z vs X)</h2>
-            <div class="status-pill"><div id="rec-dot" class="dot"></div> <span id="status-text">IDLE</span></div>
-        </div>
-        <div style="flex:1; position:relative; width:100%; padding:5px;">
-             <!-- REPLACED: Chart.js Canvas with Raw Canvas -->
-            <canvas id="chart-canvas"></canvas>
+<div class="app-container">
+    
+    <!-- Title Area -->
+    <div class="header">
+        <h1>GaitOS Pro</h1>
+        <div class="status-badge">
+            <div id="live-dot" class="live-dot"></div>
+            <span id="status-text">DISCONNECTED</span>
         </div>
     </div>
 
-    <!-- Row 2: Primary Metrics -->
-    <div class="metrics">
-        <div class="metric">
-            <div class="metric-label">Cadence</div>
-            <div class="metric-val" style="color:var(--accent)"><span id="m-cad">0</span> <span class="metric-unit">SPM</span></div>
+    <!-- Main Vis -->
+    <div class="card" style="padding: 0;">
+        <div style="padding: 20px 20px 0 20px;">
+            <div class="label">Real-Time Trajectory (Side View)</div>
         </div>
-        <div class="metric">
-            <div class="metric-label">Stability</div>
-            <div class="metric-val" style="color:var(--struct)"><span id="m-stab">100</span><span class="metric-unit">%</span></div>
+        <div class="chart-container">
+            <canvas id="main-canvas"></canvas>
         </div>
-        <div class="metric">
-            <div class="metric-label">Stability Index</div>
-             <div class="metric-val"><span id="stab">--</span><span class="metric-unit">%</span></div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">HFC (Hip)</div>
-            <div class="metric-val"><span id="hfc">--</span><span class="metric-unit">Idx</span></div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">Distance</div>
-            <div class="metric-val"><span id="m-dist">0.0</span> <span class="metric-unit">m</span></div>
-        </div>
-        <div class="metric">
-            <div class="metric-label">Steps</div>
-            <div class="metric-val"><span id="m-steps">0</span></div>
+        <div style="position: absolute; bottom: 15px; left: 20px; font-size: 12px; color: var(--text-muted);">
+            Z-Height (cm) vs Step Progress
         </div>
     </div>
 
-    <!-- Row 3: Secondary Metrics (Pitch / Clearance) -->
-    <div class="metrics">
-         <div class="metric">
-            <div class="metric-label">Clearance</div>
-            <div class="metric-val"><span id="m-clear">0.0</span> <span class="metric-unit">cm</span></div>
+    <!-- Primary Metrics -->
+    <div class="grid-2">
+        <div class="card">
+            <div class="label">Stability Index</div>
+            <div class="value" id="val-stab" style="color: var(--success)">--</div>
+            <div class="unit">Healthy Rhythm</div>
         </div>
-        <div class="metric">
-            <div class="metric-label">Pitch</div>
-            <div class="metric-val"><span id="m-pitch">0</span><span class="metric-unit">°</span></div>
-        </div>
-         <div class="metric">
-            <div class="metric-label">Phase</div>
-            <div class="metric-val" id="m-phase" style="font-size:1.2rem; margin-top:5px;">STANCE</div>
-        </div>
-         <div class="metric">
-            <div class="metric-label">Status</div>
-            <div class="metric-val" id="m-move" style="font-size:1.2rem; margin-top:5px; color:var(--warn)">STAT</div>
+        <div class="card">
+            <div class="label">Cadence</div>
+            <div class="value" id="val-cad">--</div>
+            <div class="unit">Steps / Min</div>
         </div>
     </div>
 
-    <div class="controls">
-        <button id="btn-rec" class="btn-main" onclick="record(true)">Start Recording</button>
-        <button id="btn-stop" class="btn-stop" onclick="record(false)">Stop</button>
-        <button onclick="api('calibrate')">Zero Sensors</button>
+    <!-- Secondary Metrics -->
+    <div class="grid-4">
+        <div class="card" style="padding:12px; text-align:center;">
+            <div class="label">Clearance</div>
+            <div style="font-size:18px; font-weight:700; margin-top:4px;" id="val-clear">0.0</div>
+            <div class="unit">cm</div>
+        </div>
+        <div class="card" style="padding:12px; text-align:center;">
+            <div class="label">HFC</div>
+            <div style="font-size:18px; font-weight:700; margin-top:4px;" id="val-hfc">0</div>
+            <div class="unit">idx</div>
+        </div>
+        <div class="card" style="padding:12px; text-align:center;">
+            <div class="label">Dist</div>
+            <div style="font-size:18px; font-weight:700; margin-top:4px;" id="val-dist">0.0</div>
+            <div class="unit">m</div>
+        </div>
+        <div class="card" style="padding:12px; text-align:center;">
+            <div class="label">Phase</div>
+            <div style="font-size:14px; font-weight:700; margin-top:8px; display: block;" id="val-phase">STANCE</div>
+        </div>
     </div>
 
-    <div class="logs-box">
-        <div class="logs-header">
-            <span>DATA RECORDINGS</span>
-            <span style="font-size:0.8rem; cursor:pointer;" onclick="fetchLogs()">REFRESH LIST</span>
+    <!-- Logs -->
+    <div class="card">
+        <div class="header">
+            <div class="label">Session History</div>
+            <div class="label" style="cursor: pointer; color: var(--accent)" onclick="fetchLogs()">REFRESH</div>
         </div>
-        <div id="log-list"></div>
+        <div id="log-list" style="margin-top: 10px; min-height: 50px;">
+            <div style="font-size:13px; color:#555">Loading records...</div>
+        </div>
     </div>
+    
+    <div style="height: 40px;"></div>
+</div>
+
+<!-- Floating Controls (Apple Style) -->
+<div class="action-bar">
+    <button class="btn btn-glass" onclick="api('calibrate')" style="flex: 1;">Zero Sensors</button>
+    <button id="btn-toggle" class="btn btn-primary" onclick="toggleRecord()" style="flex: 2;">Start Recording</button>
 </div>
 
 <script>
-    // --- V13 OFFLINE-FIRST LOGIC ---
+    // --- APP LOGIC ---
     let recording = false;
-    const MAX_PTS = 200; 
-    let trajectory = []; // Ring buffer in JS
-
-    // Canvas Setup
-    const canvas = document.getElementById('chart-canvas');
+    let trajectory = [];
+    const MAX_PTS = 300; // Increased buffer
+    
+    // Auto-Scaling Canvas Logic
+    const canvas = document.getElementById('main-canvas');
     const ctx = canvas.getContext('2d');
-    let width, height;
-
+    
     function resize() {
-        width = canvas.parentElement.clientWidth;
-        height = canvas.parentElement.clientHeight;
-        canvas.width = width;
-        canvas.height = height;
+        // High-DPI support
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
     }
     window.addEventListener('resize', resize);
-    resize();
-
-    // Drawing Loop (Manual Charting)
-    function drawChart() {
-        // Clear
-        ctx.fillStyle = "#242426";
-        ctx.fillRect(0, 0, width, height);
-
-        // Grid Lines
-        ctx.strokeStyle = "#2c2c2e";
+    setTimeout(resize, 100); // Init
+    
+    function draw() {
+        const w = canvas.parentElement.clientWidth;
+        const h = canvas.parentElement.clientHeight;
+        
+        ctx.clearRect(0,0,w,h);
+        
+        // Dynamic Grid
+        ctx.strokeStyle = "rgba(255,255,255,0.05)";
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(0, height * 0.5); ctx.lineTo(width, height * 0.5); // Horizon
+        ctx.moveTo(0, h*0.25); ctx.lineTo(w, h*0.25);
+        ctx.moveTo(0, h*0.50); ctx.lineTo(w, h*0.50);
+        ctx.moveTo(0, h*0.75); ctx.lineTo(w, h*0.75);
         ctx.stroke();
-
-        // Plot Trajectory
-        if (trajectory.length < 2) return;
-
-        ctx.strokeStyle = "#0a84ff";
-        ctx.lineWidth = 3;
-        ctx.lineJoin = "round";
+        
+        if(trajectory.length < 2) return;
+        
+        // Auto-Scale Y Axis (Z-Height)
+        // Find Max Z in buffer to keep graph centered
+        let maxZ = 0.2; // Min 20cm range
+        for(let p of trajectory) if(p.y > maxZ) maxZ = p.y;
+        maxZ = maxZ * 1.2; // 20% headroom
+        
+        // Draw Line
         ctx.beginPath();
-
-        // SCALING: X vs Z (Clearance)
-        // Y-axis: 0 to 40cm (0.4m)
-        // X-axis: Sliding window
+        const stepX = w / MAX_PTS; 
         
-        // Find most recent X to stick to right side?
-        // Let's just plot abstract index or relative X
-        // Better: Map px (meters) to x-pixels, pz (meters) to y-pixels
-        
-        const scaleY = height / 0.4; // 0.4m = full height
-        const scaleX = width / 2.0; // 2m wide window? Or just auto-scroll
-        
-        // Auto-scroll logic: recenter on latest point
-        const lastP = trajectory[trajectory.length - 1];
-        const centerOffsetX = (width * 0.8) - (lastP.x * 100); // Keep latest at 80% width?
-        // Actually, simpler: Just plot sliding window of last N points,
-        // Mapping index to X is easiest for a strip chart, but this is a SPACE plot (Z vs X).
-        // Let's iterate relative to the head.
-        
-        ctx.beginPath();
-        for (let i = 0; i < trajectory.length; i++) {
-            const p = trajectory[i];
+        // Draw from Right to Left (History)
+        // Head is at index length-1
+        for(let i=0; i<trajectory.length; i++) {
+            let pt = trajectory[trajectory.length - 1 - i]; // Reverse iter
             
-            // X mapping: Relative to the last point to create a sliding effect
-            // We want last point at width * 0.9
-            const relativeX = p.x - lastP.x; // 0 at last point, negative for history
+            let x = w - (i * stepX); // Latest at Right Edge
+            let y = h - ((pt.y / maxZ) * h); // Scale Z to Height
             
-            // Layout: 1 meter range visible
-            // 1 meter = width pixels?
-            const pixX = (width * 0.8) + (relativeX * (width / 2)); // 2m field of view
-            
-            // Y mapping: Bottom is 0
-            const pixY = height - (p.y * scaleY);
-            
-            if (i === 0) ctx.moveTo(pixX, pixY);
-            else ctx.lineTo(pixX, pixY);
+            // Curve smoothing
+            if(i===0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
         }
+        
+        ctx.lineJoin = "round";
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent');
         ctx.stroke();
         
-        // Draw Fill (Gradient-ish)
-        ctx.lineTo(width, height);
-        ctx.lineTo(0, height);
+        // Gradient Fill
+        ctx.lineTo(0, h);
+        ctx.lineTo(w, h);
         ctx.closePath();
-        ctx.fillStyle = "rgba(10, 132, 255, 0.1)";
-        ctx.fill();
-        
-        // Draw Head Dot
-        const lastY = height - (lastP.y * scaleY);
-        ctx.fillStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(width * 0.8, lastY, 4, 0, Math.PI * 2);
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, "rgba(10, 132, 255, 0.2)");
+        grad.addColorStop(1, "rgba(10, 132, 255, 0)");
+        ctx.fillStyle = grad;
         ctx.fill();
     }
 
-    async function api(endpoint) { await fetch('/api/'+endpoint, {method:'POST'}); sync(); }
-    
-    async function record(start) {
-        if(start) await api('record/start');
-        else { await api('record/stop'); setTimeout(fetchLogs, 500); }
-    }
-
+    // Sync Loop
     async function sync() {
         try {
-            const r = await fetch('/api/status');
-            const d = await r.json();
+            const res = await fetch('/api/status');
+            const d = await res.json();
             
-            // 1. Controls State
-            recording = d.recording;
-            document.getElementById('status-text').innerText = recording ? "RECORDING" : "IDLE";
-            document.getElementById('rec-dot').className = recording ? "dot active" : "dot";
-            document.getElementById('btn-rec').style.display = recording ? 'none' : 'block';
-            const stopBtn = document.getElementById('btn-stop');
-            if(recording) { stopBtn.classList.add('active'); stopBtn.classList.add('btn-danger'); }
-            else { stopBtn.classList.remove('active'); stopBtn.classList.remove('btn-danger'); }
-
-            // 2. Metrics
-            document.getElementById('m-steps').innerText = d.step_count;
-            document.getElementById('m-dist').innerText = d.dist_m.toFixed(1);
-            document.getElementById('m-clear').innerText = (d.pz * 100).toFixed(1);
-            document.getElementById('m-pitch').innerText = d.pitch.toFixed(0);
-            document.getElementById('m-cad').innerText = d.cad.toFixed(0);
-            document.getElementById('m-stab').innerText = d.stab.toFixed(0);
+            // State
+            recording = (d.recording == 1 || d.recording === true);
+            document.getElementById('status-text').innerText = recording ? "RECORDING" : "READY";
+            document.getElementById('status-text').style.color = recording ? "var(--danger)" : "var(--text-muted)";
+            const dot = document.getElementById('live-dot');
+            dot.className = recording ? "live-dot recording" : "live-dot";
             
-            document.getElementById("hfc").innerText = d.hfc.toFixed(0);
+            // Button Logic
+            const btn = document.getElementById('btn-toggle');
+            if(recording) {
+                btn.innerText = "Stop Recording";
+                btn.className = "btn btn-danger";
+            } else {
+                btn.innerText = "Start Recording";
+                btn.className = "btn btn-primary";
+            }
             
-            const stabEl = document.getElementById('stab');
-            stabEl.innerText = d.stab.toFixed(0);
-            const stabContainer = document.getElementById('m-stab').parentElement;
-            if(d.stab > 80) stabContainer.style.color = 'var(--struct)';
-            else if(d.stab > 50) stabContainer.style.color = 'var(--warn)';
-            else stabContainer.style.color = 'var(--danger)';
-
-            document.getElementById('m-phase').innerText = d.phase ? "SWING" : "STANCE";
-            document.getElementById('m-move').innerText = d.is_stat ? "STAT" : "MOVE";
+            // Metrics
+            document.getElementById('val-cad').innerText = d.cad.toFixed(0);
+            document.getElementById('val-dist').innerText = d.dist_m.toFixed(1);
+            document.getElementById('val-clear').innerText = (d.pz * 100).toFixed(1);
+            document.getElementById('val-hfc').innerText = d.hfc.toFixed(0);
+            document.getElementById('val-phase').innerText = d.phase ? "SWING" : "STANCE";
             
-            // 3. Chart Data
-            // Push {x, y}
-            trajectory.push({x: d.px, y: d.pz});
+            // Stability Color
+            const stabVal = d.stab.toFixed(0);
+            const stabEl = document.getElementById('val-stab');
+            stabEl.innerText = stabVal + "%";
+            if(d.stab > 80) stabEl.style.color = "var(--success)";
+            else if(d.stab > 50) stabEl.style.color = "var(--warn)";
+            else stabEl.style.color = "var(--danger)";
+            
+            // Trajectory Push
+            trajectory.push({x: d.px, y: d.pz}); 
+            // We ignore X for plotting, treating it as a time-strip chart of Z-height
+            // This is cleaner for "Gait Verification"
             if(trajectory.length > MAX_PTS) trajectory.shift();
             
-            // Render Frame
-            drawChart();
-
-        } catch(e) {}
+            draw();
+            
+        } catch(e) {
+            document.getElementById('status-text').innerText = "CONNECTING...";
+        }
     }
-
+    
+    async function api(ep) { await fetch('/api/' + ep, { method: 'POST' }); }
+    function toggleRecord() {
+        if(recording) { api('record/stop'); setTimeout(fetchLogs, 1000); }
+        else api('record/start');
+    }
+    
     async function fetchLogs() {
         const el = document.getElementById('log-list');
-        el.innerHTML = '<div style="padding:10px; color:#555">Loading...</div>';
+        el.innerHTML = '<div style="padding:10px; font-size:13px; color:#666">Refreshing...</div>';
         try {
             const r = await fetch('/api/logs');
-            const files = await r.json();
-            el.innerHTML = '';
-            files.reverse().slice(0, 5).forEach(f => {
+            const json = await r.json();
+            el.innerHTML = "";
+            if(json.length === 0) {
+                 el.innerHTML = '<div style="padding:10px; font-size:13px; color:#666">No recordings found.</div>';
+                 return;
+            }
+            // Reverse to show new first
+            json.reverse().forEach(f => {
+                const name = f.name.replace('/', '');
+                const kb = (f.size / 1024).toFixed(1);
                 el.innerHTML += `
                     <div class="log-item">
-                        <span>${f.name.substring(1)}</span>
-                        <div class="log-actions">
-                            <span style="color:#666">${(f.size/1024).toFixed(1)} KB</span>
-                            <a href="${f.name}" download>DL</a>
+                        <div>
+                            <div style="font-weight:600; font-size:14px;">${name}</div>
+                            <div style="font-size:11px; color:var(--text-muted)">${kb} KB</div>
                         </div>
-                    </div>`;
+                        <a href="${name}" class="log-link" download>DOWNLOAD</a>
+                    </div>
+                `;
             });
-            if(files.length === 0) el.innerHTML = '<div style="padding:10px">No recordings yet.</div>';
-        } catch(e) {}
+        } catch(e) {
+            el.innerHTML = '<div style="padding:10px; font-size:13px; color:#666">Error loading logs.</div>';
+        }
     }
-
-    setInterval(sync, 100); 
-    fetchLogs();
-
+    
+    // Init
+    setInterval(sync, 100);
+    fetchLogs(); // Load initially
 </script>
 </body>
 </html>
