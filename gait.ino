@@ -560,34 +560,144 @@ void drawPulse(M5Canvas &c, int x, int y, int r, uint16_t color) {
   c.drawCircle(x, y, haloR, color);
 }
 
-// 1. LAUNCHER
+// Battery icon helper
+void drawBatteryIcon(M5Canvas &c, int x, int y, int percent) {
+  c.drawRect(x, y, 20, 10, WHITE);
+  c.drawRect(x + 20, y + 3, 2, 4, WHITE); // Terminal
+
+  int fillWidth = (percent * 18) / 100;
+  uint16_t color = (percent > 50) ? GREEN : (percent > 20) ? YELLOW : RED;
+  if (fillWidth > 0) {
+    c.fillRect(x + 1, y + 1, fillWidth, 8, color);
+  }
+}
+
+// 1. LAUNCHER (PHASE 3.5: Redesigned)
 class LauncherApp : public App {
   int sel = 0;
 
 public:
   void onDraw(M5Canvas &c) override {
-    c.fillRect(0, 0, 240, 135, BLACK);
+    c.fillScreen(BLACK);
+
+    // Header bar
+    c.fillRect(0, 0, 240, 22, 0x1863);
     c.setTextColor(WHITE);
-    c.drawCenterString("GaitOS V2.0", 120, 20, 2);
-
-    // Battery indicator
     c.setTextSize(1);
-    c.setCursor(180, 5);
-    c.printf("Bat:%d%%", batteryPercent);
+    c.drawString("GaitOS V2.0", 10, 7, 1);
 
-    const char *names[3] = {"Lab", "Scope", "Net"};
-    int startX = 60, gap = 60;
-    for (int i = 0; i < 3; i++) {
-      int x = startX + i * gap;
-      bool act = (sel == i);
-      int r = act ? 22 : 15;
-      drawPulse(c, x, 70, r, act ? GREEN : DARKGREY);
-      c.drawCenterString(names[i], x, 100, 1);
+    // Battery icon
+    drawBatteryIcon(c, 185, 7, batteryPercent);
+    c.setCursor(210, 7);
+    c.printf("%d%%", batteryPercent);
+
+    // App grid (4 apps in 2x2 layout)
+    const char *names[4] = {"Lab", "Scope", "Net", "Files"};
+    const char *desc[4] = {"Gait", "View", "WiFi", "Data"};
+
+    for (int i = 0; i < 4; i++) {
+      int col = i % 2;
+      int row = i / 2;
+      int x = 30 + col * 120;
+      int y = 40 + row * 42;
+
+      bool selected = (sel == i);
+
+      // Card background
+      if (selected) {
+        c.fillRoundRect(x - 25, y - 3, 100, 36, 6, 0x2965);
+        c.drawRoundRect(x - 25, y - 3, 100, 36, 6, CYAN);
+      } else {
+        c.fillRoundRect(x - 25, y - 3, 100, 36, 6, 0x18C3);
+      }
+
+      // App name
+      c.setTextColor(selected ? CYAN : WHITE);
+      c.setTextSize(2);
+      c.drawCenterString(names[i], x, y + 2, 1);
+
+      // Description
+      c.setTextColor(LIGHTGREY);
+      c.setTextSize(1);
+      c.drawCenterString(desc[i], x, y + 18, 1);
     }
+
+    // Footer hint
+    c.setTextColor(DARKGREY);
+    c.setTextSize(1);
+    c.drawCenterString("A: Open  |  B: Next", 120, 125, 1);
   }
-  void onBtnB() override { sel = (sel + 1) % 3; }
+
+  void onBtnB() override {
+    sel = (sel + 1) % 4;
+    M5.Speaker.tone(1500, 50);
+  }
+
   void onBtnA() override; // Defined below classes
 };
+
+// 1.5 POWER MENU (PHASE 3.5)
+class PowerMenuApp : public App {
+private:
+  int sel = 0;
+  const char *menuItems[5] = {"Battery Info", "Sleep Mode", "Restart",
+                              "Settings", "Cancel"};
+
+public:
+  void onDraw(M5Canvas &c) override {
+    c.fillScreen(BLACK);
+    c.setTextColor(WHITE);
+    c.setTextSize(2);
+    c.drawCenterString("Power Menu", 120, 10, 2);
+
+    c.setTextSize(1);
+    for (int i = 0; i < 5; i++) {
+      int y = 40 + i * 17;
+      if (i == sel) {
+        c.fillRect(10, y - 2, 220, 15, DARKGREY);
+        c.setTextColor(CYAN);
+      } else {
+        c.setTextColor(WHITE);
+      }
+      c.drawString(menuItems[i], 20, y, 1);
+    }
+
+    c.setTextColor(DARKGREY);
+    c.drawCenterString("A: Select  |  B: Next", 120, 125, 1);
+  }
+
+  void onBtnB() override {
+    sel = (sel + 1) % 5;
+    M5.Speaker.tone(1500, 50);
+  }
+
+  void onBtnA() override {
+    M5.Speaker.tone(2000, 100);
+    switch (sel) {
+    case 0: // Battery Info
+      showToast(String(batteryVoltage, 2) + "V / " + String(batteryPercent) +
+                    "%",
+                2000);
+      break;
+    case 1: // Sleep Mode
+      showToast("Sleeping...", 1000);
+      delay(1000);
+      M5.Power.powerOff();
+      break;
+    case 2: // Restart
+      ESP.restart();
+      break;
+    case 3: // Settings
+      showToast("Coming soon", 1500);
+      break;
+    case 4: // Cancel
+      currentApp = &launcher;
+      break;
+    }
+  }
+};
+
+PowerMenuApp powerMenu;
 
 // 2. GAIT LAB
 class GaitLabApp : public App {
@@ -658,36 +768,111 @@ public:
       showToast("Rec Stop");
     }
   }
+
+  void onBtnB() override {
+    // Back to launcher
+    currentApp = &launcher;
+    M5.Speaker.tone(1500, 50);
+  }
 };
 
-// 3. SCOPE
+// 3. SCOPE (PHASE 3.5: Fixed rendering)
 class ScopeApp : public App {
 public:
   void onDraw(M5Canvas &c) override {
     c.fillScreen(BLACK);
+
+    // Header
+    c.fillRect(0, 0, 240, 20, 0x1863);
     c.setTextColor(WHITE);
     c.setTextSize(1);
-    c.setCursor(5, 5);
-    c.printf("Trajectory (Z vs X)");
+    c.drawString("< Back (B)", 5, 6, 1);
+    c.drawCenterString("Trajectory", 120, 6, 1);
 
-    int cx = 20, cy = 120;
-    // Draw Trajectory from ring buffer
-    for (int i = 0; i < trajCount - 1 && i < TRAJECTORY_LEN - 1; i++) {
+    if (trajCount < 2) {
+      c.setTextColor(DARKGREY);
+      c.drawCenterString("No trajectory data", 120, 60, 1);
+      c.drawCenterString("Walk to record path", 120, 75, 1);
+      return;
+    }
+
+    // Auto-scale trajectory
+    float minX = 9999, maxX = -9999, minZ = 9999, maxZ = -9999;
+    for (int i = 0; i < trajCount; i++) {
       int idx = (trajHead - trajCount + i + TRAJECTORY_LEN) % TRAJECTORY_LEN;
-      Point p1 = trajectory[idx];
-      Point p2 = trajectory[(idx + 1) % TRAJECTORY_LEN];
+      float x = trajectory[idx].x / 100.0f;
+      float z = trajectory[idx].y / 100.0f;
 
-      int x1 = cx + p1.x;
-      int y1 = cy - p1.y;
-      int x2 = cx + p2.x;
-      int y2 = cy - p2.y;
+      if (x < minX)
+        minX = x;
+      if (x > maxX)
+        maxX = x;
+      if (z < minZ)
+        minZ = z;
+      if (z > maxZ)
+        maxZ = z;
+    }
 
-      // Bounds check
-      if (x1 >= 0 && x1 < 240 && x2 >= 0 && x2 < 240 && y1 >= 0 && y1 < 135 &&
-          y2 >= 0 && y2 < 135) {
-        c.drawLine(x1, y1, x2, y2, CYAN);
+    // Add margins
+    float rangeX = maxX - minX;
+    float rangeZ = maxZ - minZ;
+    if (rangeX < 0.1f)
+      rangeX = 0.1f;
+    if (rangeZ < 0.1f)
+      rangeZ = 0.1f;
+    minX -= rangeX * 0.1f;
+    maxX += rangeX * 0.1f;
+    minZ -= rangeZ * 0.1f;
+    maxZ += rangeZ * 0.1f;
+
+    // Plot area
+    int plotX = 10, plotY = 25, plotW = 220, plotH = 85;
+
+    // Draw axes
+    c.drawRect(plotX, plotY, plotW, plotH, WHITE);
+
+    // Grid lines
+    c.setTextColor(0x39C7);
+    for (int i = 1; i < 4; i++) {
+      int x = plotX + (plotW * i / 4);
+      c.drawLine(x, plotY, x, plotY + plotH, 0x39C7);
+    }
+    for (int i = 1; i < 3; i++) {
+      int y = plotY + (plotH * i / 3);
+      c.drawLine(plotX, y, plotX + plotW, y, 0x39C7);
+    }
+
+    // Plot trajectory
+    for (int i = 0; i < trajCount - 1; i++) {
+      int idx = (trajHead - trajCount + i + TRAJECTORY_LEN) % TRAJECTORY_LEN;
+      float x1 = trajectory[idx].x / 100.0f;
+      float z1 = trajectory[idx].y / 100.0f;
+      float x2 = trajectory[(idx + 1) % TRAJECTORY_LEN].x / 100.0f;
+      float z2 = trajectory[(idx + 1) % TRAJECTORY_LEN].y / 100.0f;
+
+      int sx1 = plotX + (x1 - minX) / (maxX - minX) * plotW;
+      int sy1 = plotY + plotH - (z1 - minZ) / (maxZ - minZ) * plotH;
+      int sx2 = plotX + (x2 - minX) / (maxX - minX) * plotW;
+      int sy2 = plotY + plotH - (z2 - minZ) / (maxZ - minZ) * plotH;
+
+      if (sx1 >= plotX && sx1 < plotX + plotW && sx2 >= plotX &&
+          sx2 < plotX + plotW && sy1 >= plotY && sy1 < plotY + plotH &&
+          sy2 >= plotY && sy2 < plotY + plotH) {
+        c.drawLine(sx1, sy1, sx2, sy2, CYAN);
       }
     }
+
+    // Stats
+    c.setTextColor(WHITE);
+    c.setTextSize(1);
+    c.drawString("Points: " + String(trajCount), plotX, 115, 1);
+    c.drawRightString("Range: " + String(maxX - minX, 2) + "m", plotX + plotW,
+                      115, 1);
+  }
+
+  void onBtnB() override {
+    currentApp = &launcher;
+    M5.Speaker.tone(1500, 50);
   }
 };
 
@@ -702,20 +887,123 @@ public:
   }
 };
 
-LauncherApp appLauncher;
-GaitLabApp appGaitLab;
-ScopeApp appScope;
-NetApp appNet;
+// 5. FILES APP (PHASE 3.5)
+class FilesApp : public App {
+private:
+  int sel = 0;
+  String fileList[20];
+  int fileCount = 0;
 
-App *currentApp = &appLauncher;
+public:
+  void onActivate() override {
+    fileCount = 0;
+    File root = LittleFS.open("/");
+    if (root) {
+      File file = root.openNextFile();
+      while (file && fileCount < 20) {
+        String name = String(file.name());
+        if (name.endsWith(".csv")) {
+          fileList[fileCount++] = name;
+        }
+        file = root.openNextFile();
+      }
+    }
+    sel = 0;
+  }
+
+  void onDraw(M5Canvas &c) override {
+    c.fillScreen(BLACK);
+
+    c.fillRect(0, 0, 240, 20, 0x1863);
+    c.setTextColor(WHITE);
+    c.setTextSize(1);
+    c.drawString("< Back (B)", 5, 6, 1);
+    c.drawCenterString("Files (" + String(fileCount) + ")", 120, 6, 1);
+
+    if (fileCount == 0) {
+      c.setTextColor(DARKGREY);
+      c.drawCenterString("No CSV files", 120, 60, 1);
+      c.drawCenterString("Record a session first", 120, 75, 1);
+    } else {
+      int startIdx = max(0, sel - 2);
+      for (int i = 0; i < min(5, fileCount); i++) {
+        int idx = startIdx + i;
+        if (idx >= fileCount)
+          break;
+
+        int y = 25 + i * 20;
+        if (idx == sel) {
+          c.fillRect(5, y, 230, 18, DARKGREY);
+          c.setTextColor(CYAN);
+        } else {
+          c.setTextColor(WHITE);
+        }
+        c.setTextSize(1);
+
+        String displayName = fileList[idx];
+        if (displayName.length() > 30) {
+          displayName = displayName.substring(0, 27) + "...";
+        }
+        c.drawString(displayName, 10, y + 3, 1);
+      }
+    }
+
+    c.setTextColor(DARKGREY);
+    c.setTextSize(1);
+    c.drawString("A: Delete  |  B: Next/Back", 10, 125, 1);
+  }
+
+  void onBtnB() override {
+    if (fileCount == 0) {
+      currentApp = &launcher;
+      M5.Speaker.tone(1500, 50);
+    } else if (sel < fileCount - 1) {
+      sel++;
+      M5.Speaker.tone(1500, 50);
+    } else {
+      sel = 0;
+      M5.Speaker.tone(1500, 50);
+    }
+  }
+
+  void onBtnA() override {
+    if (fileCount > 0) {
+      LittleFS.remove(fileList[sel]);
+      M5.Speaker.tone(2000, 200);
+      showToast("Deleted!", 1500);
+      onActivate();
+    } else {
+      currentApp = &launcher;
+      M5.Speaker.tone(1500, 50);
+    }
+  }
+};
+
+LauncherApp launcher;
+GaitLabApp gaitLab;
+ScopeApp scope;
+NetApp netApp;
+FilesApp filesApp;
+
+App *currentApp = &launcher;
 
 void LauncherApp::onBtnA() {
-  if (sel == 0)
-    currentApp = &appGaitLab;
-  if (sel == 1)
-    currentApp = &appScope;
-  if (sel == 2)
-    currentApp = &appNet;
+  M5.Speaker.tone(2000, 100);
+  switch (sel) {
+  case 0:
+    currentApp = &gaitLab;
+    break;
+  case 1:
+    currentApp = &scope;
+    break;
+  case 2:
+    currentApp = &netApp;
+    break;
+  case 3:
+    filesApp.onActivate();
+    currentApp = &filesApp;
+    break;
+  }
   currentApp->onOpen();
 }
 
@@ -893,6 +1181,23 @@ void setup() {
 
   // NEW: Logs & Downloads
   server.on("/api/logs", HTTP_GET, handleLogsList);
+
+  // DELETE API for file management (PHASE 3.5)
+  server.on("/api/delete", HTTP_DELETE, []() {
+    String uri = server.uri();
+    String filename = uri.substring(12); // Remove "/api/delete/"
+    if (!filename.startsWith("/")) {
+      filename = "/" + filename;
+    }
+
+    if (LittleFS.exists(filename)) {
+      LittleFS.remove(filename);
+      server.send(200, "text/plain", "Deleted");
+    } else {
+      server.send(404, "text/plain", "File not found");
+    }
+  });
+
   server.onNotFound([]() {
     if (!handleFileRead(server.uri()))
       server.send(404, "text/plain", "404: Not Found");
@@ -906,6 +1211,10 @@ void setup() {
 
   showToast("GaitOS V2.0", 2000);
 }
+
+// Power button long-press tracking
+unsigned long btnPwrPressTime = 0;
+bool btnPwrLongPress = false;
 
 void loop() {
   M5.update();
@@ -953,14 +1262,33 @@ void loop() {
   }
 
   // App Input
+
+  // Power button long-press detection (2s hold for power menu)
+  if (M5.BtnPWR.isPressed() && !btnPwrLongPress) {
+    if (btnPwrPressTime == 0) {
+      btnPwrPressTime = millis();
+    } else if (millis() - btnPwrPressTime > 2000) {
+      currentApp = &powerMenu;
+      btnPwrLongPress = true;
+      M5.Speaker.tone(1000, 100);
+      currentApp->onOpen();
+    }
+  }
+
+  if (M5.BtnPWR.wasReleased()) {
+    // Short press: back to launcher
+    if (!btnPwrLongPress && btnPwrPressTime > 0) {
+      currentApp = &launcher;
+      currentApp->onOpen();
+    }
+    btnPwrPressTime = 0;
+    btnPwrLongPress = false;
+  }
+
   if (M5.BtnA.wasPressed())
     currentApp->onBtnA();
   if (M5.BtnB.wasPressed())
     currentApp->onBtnB();
-  if (M5.BtnPWR.wasPressed()) {
-    currentApp = &appLauncher;
-    currentApp->onOpen();
-  }
 
   // Draw
   currentApp->onDraw(canvas);

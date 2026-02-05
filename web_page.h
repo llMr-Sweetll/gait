@@ -1100,6 +1100,57 @@ const char index_html[] PROGMEM = R"rawliteral(
             const panel = document.getElementById(id + '-panel');
             panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
         }
+        
+        // PHASE 3.5: File Management Functions
+        async function deleteLog(filename) {
+            if (!confirm(`Delete ${filename}?\n\nThis action cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/delete/' + encodeURIComponent(filename), {
+                    method: 'DELETE'
+                });
+                
+                if (res.ok) {
+                    showToast('✓ File deleted successfully');
+                } else {
+                    showToast('✗ Failed to delete file');
+                }
+            } catch (err) {
+                console.error('Delete error:', err);
+                showToast('✗ Error deleting file');
+            }
+        }
+        
+        function downloadLog(filename) {
+            window.location.href = '/' + filename;
+        }
+        
+        function showToast(msg) {
+            const toast = document.createElement('div');
+            toast.innerText = msg;
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 100px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #32D74B;
+                color: white;
+                padding: 12px 24px;
+                border-radius: 8px;
+                z-index: 9999;
+                font-weight: 600;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            `;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        }
     </script>
 </body>
 </html>
