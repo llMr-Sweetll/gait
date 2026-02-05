@@ -9,450 +9,1042 @@ const char index_html[] PROGMEM = R"rawliteral(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>GaitOS Pro</title>
+    <title>GaitOS V2.0</title>
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+    
     <style>
         :root {
-            --bg-grad: radial-gradient(circle at top left, #1a2a6c, #b21f1f, #fdbb2d);
-            --bg-solid: #000;
-            --glass: rgba(255, 255, 255, 0.08);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --text-main: #ffffff;
+            --bg: #0a0a0a;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --text: #ffffff;
             --text-muted: rgba(255, 255, 255, 0.6);
             --accent: #0A84FF;
             --success: #32D74B;
-            --warn: #FF9F0A;
+            --warning: #FF9F0A;
             --danger: #FF453A;
-            --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, sans-serif;
+            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
         }
 
+        * { box-sizing: border-box; }
+        
         body {
-            font-family: var(--font-stack);
-            background: #000;
-            color: var(--text-main);
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
             margin: 0;
             padding: 20px;
-            padding-bottom: 80px; /* Space for fab */
+            padding-bottom: 100px;
             -webkit-font-smoothing: antialiased;
         }
 
-        /* Container */
-        .app-container {
-            max-width: 600px;
+        .container {
+            max-width: 1200px;
             margin: 0 auto;
             display: flex;
             flex-direction: column;
-            gap: 24px;
-        }
-
-        /* Typography */
-        h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.5px; }
-        .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); font-weight: 600; }
-        .value { font-size: 28px; font-weight: 700; letter-spacing: -1px; }
-        .unit { font-size: 14px; font-weight: 500; color: var(--text-muted); margin-left: 2px; }
-
-        /* Components */
-        .card {
-            background: var(--glass);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 20px;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            gap: 20px;
         }
 
         /* Header */
-        .header { display: flex; justify-content: space-between; align-items: center; }
-        .status-badge {
-            font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 20px;
-            background: rgba(255,255,255,0.1); color: var(--text-muted);
-            display: flex; align-items: center; gap: 6px;
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
         }
-        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
-        .live-dot.recording { background: var(--danger); box-shadow: 0 0 10px var(--danger); animation: pulse 2s infinite; }
-        
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
-        /* Chart */
-        .chart-container { height: 260px; width: 100%; position: relative; }
-        canvas { width: 100%; height: 100%; display: block; }
-        
-        /* Grid */
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(50, 215, 75, 0.15);
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .metric-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-left: 4px solid var(--text-muted);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .metric-card.status-normal { border-left-color: var(--success); }
+        .metric-card.status-warning { border-left-color: var(--warning); }
+        .metric-card.status-critical { border-left-color: var(--danger); }
+
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .metric-info {
+            cursor: help;
+            opacity: 0.5;
+            font-size: 14px;
+        }
+
+        .metric-value-container {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .metric-value {
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: -1px;
+        }
+
+        .metric-trend {
+            font-size: 18px;
+            color: var(--text-muted);
+        }
+
+        .metric-stats {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* Grid Layouts */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .grid-2, .grid-3, .grid-4 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Chart Container */
+        .chart-wrapper {
+            position: relative;
+            height: 250px;
+            margin-top: 10px;
+        }
+
+        .chart-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .chart-btn {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .chart-btn:hover {
+            background: rgba(0,0,0,0.7);
+        }
 
         /* Buttons */
         .btn {
-            width: 100%; padding: 16px; border: none; border-radius: 18px;
-            font-size: 16px; font-weight: 600; cursor: pointer;
-            transition: transform 0.1s;
-        }
-        .btn:active { transform: scale(0.96); }
-        .btn-primary { background: var(--accent); color: white; }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-glass { background: rgba(255,255,255,0.1); color: white; }
-        
-        /* Interactive Controls Area */
-        .action-bar {
-            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-            width: 90%; max-width: 580px;
-            background: rgba(28, 28, 30, 0.9); backdrop-filter: blur(20px);
-            padding: 10px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.1);
-            display: flex; gap: 10px; z-index: 100;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: var(--font);
         }
 
-        /* Logs List */
-        .log-item {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.1);
+        .btn-primary {
+            background: var(--accent);
+            color: white;
         }
-        .log-item:last-child { border: none; }
-        .log-link { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 14px; }
+
+        .btn-primary:hover {
+            background: #0066CC;
+            transform: translateY(-1px);
+        }
+
+        .btn-glass {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text);
+        }
+
+        .btn-glass:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        /* Action Bar */
+        .action-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 10, 0.95);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid var(--card-border);
+            padding: 16px 20px;
+            display: flex;
+            gap: 12px;
+            z-index: 100;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .modal-content {
+            background: #1a1a1a;
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal h2 {
+            margin: 0 0 20px 0;
+            font-size: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 14px;
+            font-family: var(--font);
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 24px;
+        }
+
+        /* Export Options */
+        .export-option {
+            margin-bottom: 12px;
+        }
+
+        .export-desc {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: 5px 0 0 0;
+        }
+
+        /* Collapsible */
+        .collapsible-header {
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+
+        .collapsible-header:hover {
+            opacity: 0.8;
+        }
+
+        .collapsible-content {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid var(--card-border);
+        }
+
+        /* Unit Label */
+        .unit {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Log List */
+        .log-item {
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .log-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .log-item.selected {
+            background: rgba(10, 132, 255, 0.2);
+            border: 1px solid var(--accent);
+        }
     </style>
 </head>
 <body>
-
-<div class="app-container">
-    
-    <!-- Title Area -->
-    <div class="header">
-        <h1>GaitOS Pro</h1>
-        <div class="status-badge">
-            <div id="live-dot" class="live-dot"></div>
-            <span id="status-text">DISCONNECTED</span>
-        </div>
-    </div>
-
-    <!-- Main Vis -->
-    <div class="card" style="padding: 0;">
-        <div style="padding: 20px 20px 0 20px;">
-            <div class="label">Real-Time Trajectory (Side View)</div>
-        </div>
-        <div class="chart-container">
-            <canvas id="main-canvas"></canvas>
-        </div>
-        <div style="position: absolute; bottom: 15px; left: 20px; font-size: 12px; color: var(--text-muted);">
-            Z-Height (cm) vs Step Progress
-        </div>
-    </div>
-
-    <!-- Primary Metrics -->
-    <div class="grid-2">
-        <div class="card">
-            <div class="label">Stability Index</div>
-            <div class="value" id="val-stab" style="color: var(--success)">--</div>
-            <div class="unit">Healthy Rhythm</div>
-        </div>
-        <div class="card">
-            <div class="label">Cadence</div>
-            <div class="value" id="val-cad">--</div>
-            <div class="unit">Steps / Min</div>
-        </div>
-    </div>
-
-    <!-- Secondary Metrics -->
-    <div class="grid-4">
-        <div class="card" style="padding:12px; text-align:center;">
-            <div class="label">Clearance</div>
-            <div style="font-size:18px; font-weight:700; margin-top:4px;" id="val-clear">0.0</div>
-            <div class="unit">cm</div>
-        </div>
-        <div class="card" style="padding:12px; text-align:center;">
-            <div class="label">Battery</div>
-            <div style="font-size:18px; font-weight:700; margin-top:4px;" id="val-battery">100</div>
-            <div class="unit">%</div>
-        </div>
-        <div class="card" style="padding:12px; text-align:center;">
-            <div class="label">Dist</div>
-            <div style="font-size:18px; font-weight:700; margin-top:4px;" id="val-dist">0.0</div>
-            <div class="unit">m</div>
-        </div>
-        <div class="card" style="padding:12px; text-align:center;">
-            <div class="label">Phase</div>
-            <div style="font-size:14px; font-weight:700; margin-top:8px; display: block;" id="val-phase">STANCE</div>
-        </div>
-    </div>
-
-    <!-- Tuning Section (Collapsible) -->
-    <div class="card">
-        <div class="header" onclick="toggleTuning()" style="cursor:pointer">
-            <div class="label">Advanced Tuning (Click to Expand)</div>
-            <div class="label" style="color:var(--accent)">▼</div>
-        </div>
-        <div id="tuning-panel" style="display:none; margin-top:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px;">
-            
-            <!-- Step Duration -->
-            <div style="margin-bottom:20px;">
-                <div class="header">
-                    <span style="font-size:14px; font-weight:600;">Min Step Duration</span>
-                    <span id="lbl-dur" style="font-size:14px; color:var(--accent)">300ms</span>
-                </div>
-                <input type="range" id="rng-dur" min="200" max="800" step="10" value="300" style="width:100%; margin-top:8px;" oninput="updateLbl('dur', this.value + 'ms')">
-                <div class="grid-2" style="margin-top:4px;">
-                    <div class="unit" style="text-align:left;">&lt; Faster Steps</div>
-                    <div class="unit" style="text-align:right;">Slower Gait &gt;</div>
-                </div>
-                <div class="unit" style="font-size:11px; margin-top:4px; color:#888;">
-                    Increase for patients with slow, shuffling gait to avoid double-counting.
-                </div>
-            </div>
-
-            <!-- Sensitivity -->
-            <div style="margin-bottom:20px;">
-                <div class="header">
-                    <span style="font-size:14px; font-weight:600;">Stance Sensitivity</span>
-                    <span id="lbl-sens" style="font-size:14px; color:var(--accent)">0.2g</span>
-                </div>
-                <input type="range" id="rng-sens" min="0.05" max="0.5" step="0.01" value="0.2" style="width:100%; margin-top:8px;" oninput="updateLbl('sens', this.value + 'g')">
-                <div class="grid-2" style="margin-top:4px;">
-                    <div class="unit" style="text-align:left;">&lt; Detects Soft Steps</div>
-                    <div class="unit" style="text-align:right;">Ignores Noise &gt;</div>
-                </div>
-                <div class="unit" style="font-size:11px; margin-top:4px; color:#888;">
-                    Lower (0.1g) for frail patients. Higher (0.3g) for heavy impacts.
-                </div>
-            </div>
-
-            <button class="btn btn-primary" onclick="saveConfig()" style="padding:10px; font-size:14px;">Apply Custom Settings</button>
-            <div style="text-align: center; margin-top: 10px; font-size: 11px; color: var(--text-muted); cursor: pointer;" onclick="resetDefaults()">Reset to Defaults</div>
-        </div>
-    </div>
-
-    <!-- Logs -->
-    <div class="card">
+    <div class="container">
+        <!-- Header -->
         <div class="header">
-            <div class="label">Session History</div>
-            <div class="label" style="cursor: pointer; color: var(--accent)" onclick="fetchLogs()">REFRESH LIST</div>
+            <h1>GaitOS V2.0</h1>
+            <div class="status-badge">
+                <div class="live-dot"></div>
+                <span id="status-text">CONNECTED</span>
+            </div>
         </div>
-        <div id="log-list" style="margin-top: 10px; min-height: 50px;">
-            <div style="font-size:13px; color:#555">Loading records...</div>
+
+        <!-- Primary Metrics -->
+        <div class="grid-2">
+            <div class="metric-card" data-metric="stability">
+                <div class="metric-header">
+                    <span class="metric-label">Stability Index</span>
+                    <span class="metric-info" title="Gait rhythmicity - 100% is perfect consistency">ⓘ</span>
+                </div>
+                <div class="metric-value-container">
+                    <div class="metric-value" id="val-stab">--</div>
+                    <span class="metric-trend" id="trend-stab"></span>
+                </div>
+                <div class="metric-stats">
+                    <span>Min: <span id="min-stab">--</span></span>
+                    <span>Avg: <span id="avg-stab">--</span></span>
+                    <span>Max: <span id="max-stab">--</span></span>
+                </div>
+            </div>
+
+            <div class="metric-card" data-metric="cadence">
+                <div class="metric-header">
+                    <span class="metric-label">Cadence</span>
+                    <span class="metric-info" title="Steps per minute - Normal range: 90-130">ⓘ</span>
+                </div>
+                <div class="metric-value-container">
+                    <div class="metric-value" id="val-cad">--</div>
+                    <span class="metric-trend" id="trend-cad"></span>
+                </div>
+                <div class="metric-stats">
+                    <span>Min: <span id="min-cad">--</span></span>
+                    <span>Avg: <span id="avg-cad">--</span></span>
+                    <span>Max: <span id="max-cad">--</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Secondary Metrics -->
+        <div class="grid-4">
+            <div class="card" style="padding:12px; text-align:center;">
+                <div class="metric-label">Clearance</div>
+                <div style="font-size:24px; font-weight:700; margin:8px 0;" id="val-clear">0.0</div>
+                <div class="unit">cm</div>
+            </div>
+            <div class="card" style="padding:12px; text-align:center;">
+                <div class="metric-label">Battery</div>
+                <div style="font-size:24px; font-weight:700; margin:8px 0;" id="val-battery">100</div>
+                <div class="unit">%</div>
+            </div>
+            <div class="card" style="padding:12px; text-align:center;">
+                <div class="metric-label">Distance</div>
+                <div style="font-size:24px; font-weight:700; margin:8px 0;" id="val-dist">0.0</div>
+                <div class="unit">m</div>
+            </div>
+            <div class="card" style="padding:12px; text-align:center;">
+                <div class="metric-label">Phase</div>
+                <div style="font-size:16px; font-weight:700; margin:12px 0;" id="val-phase">STANCE</div>
+            </div>
+        </div>
+
+        <!-- Real-Time Trajectory Chart -->
+        <div class="card">
+            <div class="metric-label" style="margin-bottom: 10px;">Real-Time Trajectory (Side View)</div>
+            <div class="chart-wrapper">
+                <div class="chart-controls">
+                    <button class="chart-btn" onclick="resetZoom()">Reset Zoom</button>
+                    <button class="chart-btn" onclick="clearTrajectory()">Clear</button>
+                </div>
+                <canvas id="trajectoryChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Cadence Time-Series Chart -->
+        <div class="card">
+            <div class="metric-label" style="margin-bottom: 10px;">Cadence Over Time</div>
+            <div class="chart-wrapper" style="height: 180px;">
+                <canvas id="cadenceChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Advanced Tuning -->
+        <div class="card">
+            <div class="collapsible-header" onclick="toggleSection('tuning')">
+                <div class="metric-label">Advanced Tuning</div>
+                <div class="metric-label" style="color:var(--accent)">▼</div>
+            </div>
+            <div id="tuning-panel" class="collapsible-content" style="display:none;">
+                <div class="form-group">
+                    <label>Min Step Duration (ms)</label>
+                    <input type="number" id="cfg-step-time" value="280" step="10">
+                </div>
+                <div class="form-group">
+                    <label>ZUPT Acceleration Threshold (g)</label>
+                    <input type="number" id="cfg-zupt-acc" value="0.25" step="0.05">
+                </div>
+                <button class="btn btn-primary" onclick="saveConfig()" style="width:100%;">Apply Settings</button>
+            </div>
+        </div>
+
+        <!-- Data Export -->
+        <div class="card">
+            <div class="metric-label" style="margin-bottom: 15px;">Data Export</div>
+            
+            <div class="export-option">
+                <button class="btn btn-primary" onclick="exportCSV()" style="width:100%;">
+                    📊 Download CSV (Full Data)
+                </button>
+                <p class="export-desc">23 columns, 100Hz raw data</p>
+            </div>
+            
+            <div class="export-option">
+                <button class="btn btn-glass" onclick="exportJSON()" style="width:100%;">
+                    { } Download JSON
+                </button>
+                <p class="export-desc">Machine-readable format</p>
+            </div>
+            
+            <div class="export-option">
+                <button class="btn btn-glass" onclick="exportSummary()" style="width:100%;">
+                    📄 Generate Summary Report
+                </button>
+                <p class="export-desc">HTML report with statistics</p>
+            </div>
+        </div>
+
+        <!-- Session Logs -->
+        <div class="card">
+            <div class="collapsible-header" onclick="toggleSection('logs')">
+                <div class="metric-label">Session History</div>
+                <div class="metric-label" style="cursor:pointer; color:var(--accent)" onclick="event.stopPropagation(); fetchLogs()">REFRESH</div>
+            </div>
+            <div id="logs-panel" class="collapsible-content">
+                <div id="log-list"></div>
+            </div>
         </div>
     </div>
-    
-    <div style="height: 40px;"></div>
-</div>
 
-<!-- Floating Controls (Apple Style) -->
-<div class="action-bar">
-    <button class="btn btn-glass" onclick="api('calibrate')" style="flex: 1;">Zero Sensors</button>
-    <button id="btn-toggle" class="btn btn-primary" onclick="toggleRecord()" style="flex: 2;">Start Recording</button>
-</div>
+    <!-- Floating Action Bar -->
+    <div class="action-bar">
+        <button class="btn btn-glass" onclick="api('calibrate')" style="flex:1;">Zero Sensors</button>
+        <button id="btn-toggle" class="btn btn-primary" onclick="toggleRecord()" style="flex:2;">Start Recording</button>
+    </div>
 
-<script>
-    // --- APP LOGIC ---
-    let recording = false;
-    let trajectory = [];
-    const MAX_PTS = 300; // Increased buffer
-    
-    // Auto-Scaling Canvas Logic
-    const canvas = document.getElementById('main-canvas');
-    const ctx = canvas.getContext('2d');
-    
-    function resize() {
-        // High-DPI support
-        const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.parentElement.getBoundingClientRect();
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        ctx.scale(dpr, dpr);
-        canvas.style.width = `${rect.width}px`;
-        canvas.style.height = `${rect.height}px`;
-    }
-    window.addEventListener('resize', resize);
-    setTimeout(resize, 100); // Init
-    
-    function draw() {
-        const w = canvas.parentElement.clientWidth;
-        const h = canvas.parentElement.clientHeight;
-        
-        ctx.clearRect(0,0,w,h);
-        
-        // Dynamic Grid
-        ctx.strokeStyle = "rgba(255,255,255,0.05)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, h*0.25); ctx.lineTo(w, h*0.25);
-        ctx.moveTo(0, h*0.50); ctx.lineTo(w, h*0.50);
-        ctx.moveTo(0, h*0.75); ctx.lineTo(w, h*0.75);
-        ctx.stroke();
-        
-        if(trajectory.length < 2) return;
-        
-        // Auto-Scale Y Axis (Z-Height)
-        // Find Max Z in buffer to keep graph centered
-        let maxZ = 0.2; // Min 20cm range
-        for(let p of trajectory) if(p.y > maxZ) maxZ = p.y;
-        maxZ = maxZ * 1.2; // 20% headroom
-        
-        // Draw Line
-        ctx.beginPath();
-        const stepX = w / MAX_PTS; 
-        
-        // Draw from Right to Left (History)
-        // Head is at index length-1
-        for(let i=0; i<trajectory.length; i++) {
-            let pt = trajectory[trajectory.length - 1 - i]; // Reverse iter
-            
-            let x = w - (i * stepX); // Latest at Right Edge
-            let y = h - ((pt.y / maxZ) * h); // Scale Z to Height
-            
-            // Curve smoothing
-            if(i===0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        
-        ctx.lineJoin = "round";
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent');
-        ctx.stroke();
-        
-        // Gradient Fill
-        ctx.lineTo(0, h);
-        ctx.lineTo(w, h);
-        ctx.closePath();
-        const grad = ctx.createLinearGradient(0, 0, 0, h);
-        grad.addColorStop(0, "rgba(10, 132, 255, 0.2)");
-        grad.addColorStop(1, "rgba(10, 132, 255, 0)");
-        ctx.fillStyle = grad;
-        ctx.fill();
-    }
+    <!-- Session Modal -->
+    <div id="sessionModal" class="modal">
+        <div class="modal-content">
+            <h2>Start New Session</h2>
+            <form id="sessionForm" onsubmit="startSession(event)">
+                <div class="form-group">
+                    <label>Session Name</label>
+                    <input type="text" id="sessionName" placeholder="Auto-generated or custom...">
+                </div>
+                
+                <div class="form-group">
+                    <label>Patient ID (Optional)</label>
+                    <input type="text" id="patientId" placeholder="P-12345">
+                </div>
+                
+                <div class="form-group">
+                    <label>Session Type</label>
+                    <select id="sessionType">
+                        <option value="baseline">Baseline Assessment</option>
+                        <option value="therapy">During Therapy</option>
+                        <option value="post">Post-Treatment</option>
+                        <option value="followup">Follow-up</option>
+                        <option value="research">Research/Testing</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea id="sessionNotes" rows="3" placeholder="Pre-session observations, patient condition..."></textarea>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-glass" onclick="closeSessionModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Start Recording</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
-    // Sync Loop
-    async function sync() {
-        try {
-            const res = await fetch('/api/status');
-            const d = await res.json();
-            
-            // State
-            recording = (d.recording == 1 || d.recording === true);
-            document.getElementById('status-text').innerText = recording ? "RECORDING" : "READY";
-            document.getElementById('status-text').style.color = recording ? "var(--danger)" : "var(--text-muted)";
-            const dot = document.getElementById('live-dot');
-            dot.className = recording ? "live-dot recording" : "live-dot";
-            
-            // Button Logic
-            const btn = document.getElementById('btn-toggle');
-            if(recording) {
-                btn.innerText = "Stop Recording";
-                btn.className = "btn btn-danger";
-            } else {
-                btn.innerText = "Start Recording";
-                btn.className = "btn btn-primary";
-            }
-            
-            // Metrics
-            document.getElementById('val-cad').innerText = d.cad.toFixed(0);
-            document.getElementById('val-dist').innerText = d.dist_m.toFixed(1);
-            document.getElementById('val-clear').innerText = (d.pz * 100).toFixed(1);
-            document.getElementById('val-battery').innerText = d.battery_pct || 100;
-            document.getElementById('val-phase').innerText = d.phase ? "SWING" : "STANCE";
-            
-            // Stability Color
-            const stabVal = d.stab.toFixed(0);
-            const stabEl = document.getElementById('val-stab');
-            stabEl.innerText = stabVal + "%";
-            if(d.stab > 80) stabEl.style.color = "var(--success)";
-            else if(d.stab > 50) stabEl.style.color = "var(--warn)";
-            else stabEl.style.color = "var(--danger)";
-            
-            // Trajectory Push
-            trajectory.push({x: d.px, y: d.pz}); 
-            // We ignore X for plotting, treating it as a time-strip chart of Z-height
-            // This is cleaner for "Gait Verification"
-            if(trajectory.length > MAX_PTS) trajectory.shift();
-            
-            draw();
-            
-        } catch(e) {
-            document.getElementById('status-text').innerText = "CONNECTING...";
-        }
-    }
-    
-    async function api(ep) { await fetch('/api/' + ep, { method: 'POST' }); }
-    function toggleRecord() {
-        if(recording) { api('record/stop'); setTimeout(fetchLogs, 1000); }
-        else api('record/start');
-    }
-    
-    async function fetchLogs() {
-        const el = document.getElementById('log-list');
-        el.innerHTML = '<div style="padding:10px; font-size:13px; color:#666">Refreshing...</div>';
-        try {
-            const r = await fetch('/api/logs');
-            const json = await r.json();
-            el.innerHTML = "";
-            if(json.length === 0) {
-                 el.innerHTML = '<div style="padding:10px; font-size:13px; color:#666">No recordings found.</div>';
-                 return;
-            }
-            // Reverse to show new first
-            json.reverse().forEach(f => {
-                const name = f.name.replace('/', '');
-                const kb = (f.size / 1024).toFixed(1);
-                el.innerHTML += `
-                    <div class="log-item">
-                        <div>
-                            <div style="font-weight:600; font-size:14px;">${name}</div>
-                            <div style="font-size:11px; color:var(--text-muted)">${kb} KB</div>
-                        </div>
-                        <a href="${name}" class="log-link" download>DOWNLOAD</a>
-                    </div>
-                `;
+    <script>
+        // Global state
+        let recording = false;
+        let selectedLog = null;
+        
+        // Metric history for statistics and trends
+        const metricHistory = {
+            stability: [],
+            cadence: [],
+            clearance: []
+        };
+
+        // Chart.js instances
+        let trajectoryChart, cadenceChart;
+
+        // Initialize charts on page load
+        window.onload = function() {
+            initCharts();
+            fetchLogs();
+            setInterval(sync, 100);
+        };
+
+        function initCharts() {
+            // Trajectory Chart
+            const trajCtx = document.getElementById('trajectoryChart').getContext('2d');
+            trajectoryChart = new Chart(trajCtx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Gait Path',
+                        data: [],
+                        borderColor: '#0A84FF',
+                        backgroundColor: 'rgba(10, 132, 255, 0.2)',
+                        showLine: true,
+                        pointRadius: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: { 
+                            title: { display: true, text: 'Forward (m)', color: '#fff' },
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#999' }
+                        },
+                        y: { 
+                            title: { display: true, text: 'Height (m)', color: '#fff' },
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#999' },
+                            min: 0
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        zoom: {
+                            zoom: {
+                                wheel: { enabled: true },
+                                pinch: { enabled: true },
+                                mode: 'xy'
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'xy'
+                            }
+                        }
+                    }
+                }
             });
-        } catch(e) {
-            el.innerHTML = '<div style="padding:10px; font-size:13px; color:#666">Error loading logs.</div>';
+
+            // Cadence Chart
+            const cadCtx = document.getElementById('cadenceChart').getContext('2d');
+            cadenceChart = new Chart(cadCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Cadence (spm)',
+                        data: [],
+                        borderColor: '#32D74B',
+                        backgroundColor: 'rgba(50, 215, 75, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: { 
+                            display: false
+                        },
+                        y: { 
+                            title: { display: true, text: 'Steps/min', color: '#fff' },
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#999' },
+                            min: 0,
+                            max: 150
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
         }
-    }
+
+        // Sync with device
+        async function sync() {
+            try {
+                const res = await fetch('/api/status');
+                const d = await res.json();
+                
+                // Update metrics
+                updateMetric('stability', d.stab);
+                updateMetric('cadence', d.cad);
+                
+                document.getElementById('val-clear').innerText = (d.pz * 100).toFixed(1);
+                document.getElementById('val-battery').innerText = d.battery_pct || 100;
+                document.getElementById('val-dist').innerText = d.dist_m.toFixed(1);
+                document.getElementById('val-phase').innerText = d.phase ? "SWING" : "STANCE";
+                
+                // Update charts
+                trajectoryChart.data.datasets[0].data.push({x: d.px, y: d.pz});
+                if (trajectoryChart.data.datasets[0].data.length > 300) {
+                    trajectoryChart.data.datasets[0].data.shift();
+                }
+                trajectoryChart.update('none');
+                
+                cadenceChart.data.labels.push('');
+                cadenceChart.data.datasets[0].data.push(d.cad);
+                if (cadenceChart.data.datasets[0].data.length > 60) {
+                    cadenceChart.data.labels.shift();
+                    cadenceChart.data.datasets[0].data.shift();
+                }
+                cadenceChart.update('none');
+                
+                // Update recording state
+                if (d.recording !== recording) {
+                    recording = d.recording;
+                    updateRecordButton();
+                }
+            } catch (err) {
+                document.getElementById('status-text').innerText = 'DISCONNECTED';
+            }
+        }
+
+        function updateMetric(metric, value) {
+            // Update value
+            document.getElementById('val-' + metric.substring(0, 4)).innerText = value.toFixed(metric === 'cadence' ? 0 : 1);
+            
+            // Track history
+            metricHistory[metric].push(value);
+            if (metricHistory[metric].length > 100) metricHistory[metric].shift();
+            
+            // Calculate statistics
+            if (metricHistory[metric].length > 2) {
+                const min = Math.min(...metricHistory[metric]).toFixed(1);
+                const max = Math.max(...metricHistory[metric]).toFixed(1);
+                const avg = (metricHistory[metric].reduce((a,b) => a+b, 0) / metricHistory[metric].length).toFixed(1);
+                
+                document.getElementById('min-' + metric.substring(0, 4)).innerText = min;
+                document.getElementById('max-' + metric.substring(0, 4)).innerText = max;
+                document.getElementById('avg-' + metric.substring(0, 4)).innerText = avg;
+                
+                // Calculate trend
+                const trend = calculateTrend(metric, value);
+                document.getElementById('trend-' + metric.substring(0, 4)).innerText = trend;
+            }
+            
+            // Update color coding
+            updateMetricColor(metric, value);
+        }
+
+        function calculateTrend(metric, currentValue) {
+            if (metricHistory[metric].length < 5) return '';
+            
+            const recent = metricHistory[metric].slice(-5);
+            const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+            const change = ((currentValue - avg) / avg * 100);
+            
+            if (change > 5) return '↑ ' + change.toFixed(0) + '%';
+            if (change < -5) return '↓ ' + Math.abs(change).toFixed(0) + '%';
+            return '→';
+        }
+
+        function updateMetricColor(metric, value) {
+            const card = document.querySelector(`[data-metric="${metric}"]`);
+            if (!card) return;
+            
+            if (metric === 'stability') {
+                if (value >= 80) card.className = 'metric-card status-normal';
+                else if (value >= 60) card.className = 'metric-card status-warning';
+                else card.className = 'metric-card status-critical';
+            }
+            
+            if (metric === 'cadence') {
+                if (value >= 90 && value <= 130) card.className = 'metric-card status-normal';
+                else if (value >= 70 && value <= 150) card.className = 'metric-card status-warning';
+                else card.className = 'metric-card status-critical';
+            }
+        }
+
+        // API calls
+        async function api(endpoint) {
+            await fetch('/api/' + endpoint, { method: 'POST' });
+        }
+
+        // Recording with session management
+        function toggleRecord() {
+            if (!recording) {
+                document.getElementById('sessionModal').style.display = 'flex';
+            } else {
+                api('record/stop');
+                recording = false;
+                updateRecordButton();
+                fetchLogs();
+            }
+        }
+
+        function closeSessionModal() {
+            document.getElementById('sessionModal').style.display = 'none';
+        }
+
+        async function startSession(e) {
+            e.preventDefault();
+            
+            const metadata = {
+                name: document.getElementById('sessionName').value || generateSessionName(),
+                patientId: document.getElementById('patientId').value,
+                type: document.getElementById('sessionType').value,
+                notes: document.getElementById('sessionNotes').value
+            };
+            
+            await fetch('/api/record/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(metadata)
+            });
+            
+            recording = true;
+            updateRecordButton();
+            closeSessionModal();
+            
+            // Reset form
+            document.getElementById('sessionForm').reset();
+        }
+
+        function generateSessionName() {
+            const d = new Date();
+            return `Session_${d.getFullYear()}${(d.getMonth()+1).toString().padStart(2,'0')}${d.getDate().toString().padStart(2,'0')}_${d.getHours().toString().padStart(2,'0')}${d.getMinutes().toString().padStart(2,'0')}`;
+        }
+
+        function updateRecordButton() {
+            const btn = document.getElementById('btn-toggle');
+            if (recording) {
+                btn.innerText = 'Stop Recording';
+                btn.className = 'btn btn-danger';
+            } else {
+                btn.innerText = 'Start Recording';
+                btn.className = 'btn btn-primary';
+            }
+        }
+
+        // Configuration
+        async function saveConfig() {
+            const config = {
+                step_time: parseFloat(document.getElementById('cfg-step-time').value),
+                zupt_acc: parseFloat(document.getElementById('cfg-zupt-acc').value)
+            };
+            
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(config)
+            });
+            
+            alert('Settings saved!');
+        }
+
+        // Logs
+        async function fetchLogs() {
+            const res = await fetch('/api/logs');
+            const logs = await res.json();
+            
+            const listEl = document.getElementById('log-list');
+            if (logs.length === 0) {
+                listEl.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No recordings yet</p>';
+                return;
+            }
+            
+            listEl.innerHTML = logs.map(log => `
+                <div class="log-item${selectedLog === log.name ? ' selected' : ''}" onclick="selectLog('${log.name}')">
+                    <div>
+                        <div style="font-size: 13px; font-weight: 600;">${log.name}</div>
+                        <div style="font-size: 11px; color: var(--text-muted);">${(log.size / 1024).toFixed(1)} KB</div>
+                    </div>
+                    <button class="btn btn-glass" style="padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); downloadLog('${log.name}')">Download</button>
+                </div>
+            `).join('');
+        }
+
+        function selectLog(name) {
+            selectedLog = name;
+            fetchLogs();
+        }
+
+        function downloadLog(name) {
+            window.open('/' + name, '_blank');
+        }
+
+        // Export functions
+        function exportCSV() {
+            if (!selectedLog) {
+                alert('Please select a session from the history');
+                return;
+            }
+            downloadLog(selectedLog);
+        }
+
+        async function exportJSON() {
+            if (!selectedLog) {
+                alert('Please select a session');
+                return;
+            }
+            
+            const response = await fetch('/' + selectedLog);
+            const csvText = await response.text();
+            
+            const lines = csvText.split('\n').filter(l => l && !l.startsWith('#'));
+            const headers = lines[0].split(',').map(h => h.trim());
+            const data = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const values = lines[i].split(',');
+                const row = {};
+                headers.forEach((h, idx) => {
+                    const val = values[idx];
+                    row[h] = isNaN(val) ? val : parseFloat(val);
+                });
+                data.push(row);
+            }
+            
+            const json = JSON.stringify({
+                session: selectedLog,
+                format: 'GaitOS V2.0',
+                recordCount: data.length,
+                data: data
+            }, null, 2);
+            
+            downloadFile(json, selectedLog.replace('.csv', '.json'), 'application/json');
+        }
+
+        async function exportSummary() {
+            if (!selectedLog) {
+                alert('Please select a session');
+                return;
+            }
+            
+            const response = await fetch('/' + selectedLog);
+            const csvText = await response.text();
+            const stats = calculateSessionStats(csvText);
+            
+            const html = `<!DOCTYPE html>
+<html>
+<head>
+    <title>GaitOS Session Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; background: #f5f5f5; }
+        h1 { color: #333; }
+        .stat { background: white; padding: 20px; margin: 15px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .label { font-weight: bold; color: #666; font-size: 14px; }
+        .value { font-size: 32px; color: #0A84FF; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <h1>GaitOS Session Report</h1>
+    <p><strong>Session:</strong> ${selectedLog}</p>
+    <p><strong>Duration:</strong> ${stats.duration}s | <strong>Device:</strong> M5StickC Plus 2 (Ankle-mounted)</p>
     
-    // --- TUNING LOGIC ---
-    function toggleTuning() {
-        const p = document.getElementById('tuning-panel');
-        p.style.display = p.style.display === 'none' ? 'block' : 'none';
-        if(p.style.display === 'block') loadConfig();
-    }
+    <div class="stat">
+        <div class="label">Total Steps</div>
+        <div class="value">${stats.totalSteps}</div>
+    </div>
     
-    function updateLbl(id, val) { document.getElementById('lbl-'+id).innerText = val; }
+    <div class="stat">
+        <div class="label">Average Cadence</div>
+        <div class="value">${stats.avgCadence.toFixed(1)} <small style="font-size:16px;">steps/min</small></div>
+    </div>
     
-    async function loadConfig() {
-        try {
-            const r = await fetch('/api/config', {method:'POST'}); // Get current
-            const d = await r.json();
-            document.getElementById('rng-dur').value = d.step_time;
-            document.getElementById('lbl-dur').innerText = d.step_time + 'ms';
-            document.getElementById('rng-sens').value = d.zupt_acc;
-            document.getElementById('lbl-sens').innerText = d.zupt_acc + 'g';
-        } catch(e) {}
-    }
+    <div class="stat">
+        <div class="label">Average Stability</div>
+        <div class="value">${stats.avgStability.toFixed(1)} <small style="font-size:16px;">%</small></div>
+    </div>
     
-    async function saveConfig() {
-        const dur = document.getElementById('rng-dur').value;
-        const sens = document.getElementById('rng-sens').value;
-        await fetch('/api/config', {
-            method: 'POST',
-            body: JSON.stringify({ step_time: dur, zupt_acc: sens })
-        });
-        alert("Settings Applied!");
-    }
+    <div class="stat">
+        <div class="label">Total Distance</div>
+        <div class="value">${stats.totalDistance.toFixed(2)} <small style="font-size:16px;">m</small></div>
+    </div>
     
-    function resetDefaults() {
-        document.getElementById('rng-dur').value = 300;
-        document.getElementById('lbl-dur').innerText = "300ms";
-        document.getElementById('rng-sens').value = 0.2;
-        document.getElementById('lbl-sens').innerText = "0.2g";
-        saveConfig();
-    }
-    
-    // Init
-    
-    // Init
-    setInterval(sync, 100);
-    fetchLogs(); // Load initially
-</script>
+    <p style="margin-top: 40px; color: #999; font-size: 12px;">Generated by GaitOS V2.0 | Data sampled at 100Hz</p>
+</body>
+</html>`;
+            
+            downloadFile(html, selectedLog.replace('.csv', '_report.html'), 'text/html');
+        }
+
+        function calculateSessionStats(csvText) {
+            const lines = csvText.split('\n').filter(l => l && !l.startsWith('#'));
+            if (lines.length < 2) return { duration: 0, totalSteps: 0, avgCadence: 0, avgStability: 0, totalDistance: 0 };
+            
+            const data = lines.slice(1).map(l => l.split(','));
+            
+            // Extract columns (assuming V2.0 format: 23 columns)
+            const cadences = data.map(r => parseFloat(r[21])).filter(v => !isNaN(v) && v > 0);
+            const stabilities = data.map(r => parseFloat(r[22])).filter(v => !isNaN(v));
+            const positions = data.map(r => parseFloat(r[17])).filter(v => !isNaN(v));
+            
+            return {
+                duration: (data.length / 100).toFixed(1),
+                totalSteps: Math.round(Math.max(...data.map(r => parseFloat(r[20]) || 0), 0)),
+                avgCadence: cadences.length > 0 ? cadences.reduce((a,b) => a+b, 0) / cadences.length : 0,
+                avgStability: stabilities.length > 0 ? stabilities.reduce((a,b) => a+b, 0) / stabilities.length : 0,
+                totalDistance: Math.max(...positions, 0)
+            };
+        }
+
+        function downloadFile(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Chart controls
+        function resetZoom() {
+            trajectoryChart.resetZoom();
+        }
+
+        function clearTrajectory() {
+            trajectoryChart.data.datasets[0].data = [];
+            trajectoryChart.update();
+        }
+
+        // Collapsible sections
+        function toggleSection(id) {
+            const panel = document.getElementById(id + '-panel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+    </script>
 </body>
 </html>
 )rawliteral";
 
-#endif
+#endif // WEB_PAGE_H

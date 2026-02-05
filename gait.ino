@@ -26,7 +26,6 @@
 #include "MadgwickFilter.h"
 #include "web_page.h"
 
-
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -598,6 +597,21 @@ void handleConfig() {
   server.send(200, "application/json", json);
 }
 
+// --- JSON HELPER ---
+String extractJSON(String json, String key) {
+  int idx = json.indexOf("\"" + key + "\":");
+  if (idx == -1)
+    return "";
+  int start = json.indexOf("\"", idx + key.length() + 3);
+  if (start == -1)
+    return "";
+  start++;
+  int end = json.indexOf("\"", start);
+  if (end == -1)
+    return "";
+  return json.substring(start, end);
+}
+
 // --- LOGS API ---
 void handleLogsList() {
   File root = LittleFS.open("/");
@@ -670,11 +684,39 @@ void setup() {
     server.send(200);
   });
 
-  // Basic API for Rec
+  // Recording API with session metadata support
   server.on("/api/record/start", HTTP_POST, []() {
+    String body = server.arg("plain");
+
+    // Parse JSON metadata (simple extraction, no library needed)
+    String sessionName = extractJSON(body, "name");
+    String patientId = extractJSON(body, "patientId");
+    String sessionType = extractJSON(body, "type");
+    String notes = extractJSON(body, "notes");
+
+    // Generate filename
+    String filename = "/";
+    if (sessionName.length() > 0) {
+      filename += sessionName;
+    } else {
+      filename += "webrec_" + String(millis());
+    }
+    filename += ".csv";
+
     isRecording = true;
-    logFile = LittleFS.open("/webrec_" + String(millis()) + ".csv", FILE_WRITE);
+    logFile = LittleFS.open(filename, FILE_WRITE);
+
+    // Enhanced CSV header with session metadata
     logFile.println("# GaitOS V2.0 - Ankle Mounted");
+    if (sessionName.length() > 0)
+      logFile.println("# Session: " + sessionName);
+    if (patientId.length() > 0)
+      logFile.println("# Patient ID: " + patientId);
+    if (sessionType.length() > 0)
+      logFile.println("# Type: " + sessionType);
+    if (notes.length() > 0)
+      logFile.println("# Notes: " + notes);
+    logFile.println("# Start Time: " + String(millis()) + " ms");
     logFile.println("# Sample Rate: 100Hz");
     logFile.println("#");
     logFile.println("t,ax,ay,az,gx,gy,gz,q0,q1,q2,q3,roll,pitch,yaw,vx,vy,vz,"
