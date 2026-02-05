@@ -266,6 +266,64 @@ const char index_html[] PROGMEM = R"rawliteral(
             z-index: 100;
         }
 
+        /* PHASE 3: Alert Banner */
+        .alert-banner {
+            position: fixed;
+            top: 90px;
+            left: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #FF453A, #FF6B5E);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 4px 16px rgba(255, 69, 58, 0.5);
+            z-index: 999;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from { transform: translateY(-100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .alert-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: white;
+        }
+
+        .alert-icon {
+            font-size: 24px;
+        }
+
+        .alert-title {
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .alert-message {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-top: 4px;
+        }
+
+        .alert-close {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            cursor: pointer;
+            margin-left: auto;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .alert-close:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
         /* Modal */
         .modal {
             display: none;

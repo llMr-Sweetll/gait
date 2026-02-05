@@ -185,6 +185,111 @@ private:
 ZUPTDetector zuptDetector;
 
 // =============================================================================
+// GAIT ANOMALY DETECTOR (PHASE 3)
+// =============================================================================
+class GaitAnomalyDetector {
+private:
+  static const int HISTORY_SIZE = 10; // Last 10 steps
+  float stepTimeHistory[HISTORY_SIZE] = {0};
+  float clearanceHistory[HISTORY_SIZE] = {0};
+  float strideHistory[HISTORY_SIZE] = {0};
+  int historyIdx = 0;
+  int sampleCount = 0;
+
+  // Thresholds (tunable based on patient)
+  const float STEP_TIME_CV_THRESH = 0.15; // 15% coefficient of variation
+  const float CLEARANCE_CV_THRESH = 0.30; // 30% variation in clearance
+  const float STRIDE_CV_THRESH = 0.20;    // 20% stride length variation
+  const float MIN_CADENCE = 70.0f;        // Below = shuffling
+  const float MAX_CADENCE = 150.0f;       // Above = rushing
+
+public:
+  void init() {
+    historyIdx = 0;
+    sampleCount = 0;
+  }
+
+  void addStep(float stepTime, float clearance, float strideLength) {
+    stepTimeHistory[historyIdx] = stepTime;
+    clearanceHistory[historyIdx] = clearance;
+    strideHistory[historyIdx] = strideLength;
+
+    historyIdx = (historyIdx + 1) % HISTORY_SIZE;
+    if (sampleCount < HISTORY_SIZE)
+      sampleCount++;
+  }
+
+  bool detectAbnormality(float currentCadence, String &reason) {
+    if (sampleCount < 5)
+      return false; // Need at least 5 steps
+
+    // 1. Step Time Variability Check
+    float stepTimeCV = calculateCV(stepTimeHistory, sampleCount);
+    if (stepTimeCV > STEP_TIME_CV_THRESH) {
+      reason = "Irregular rhythm";
+      return true;
+    }
+
+    // 2. Clearance Consistency Check
+    float clearanceCV = calculateCV(clearanceHistory, sampleCount);
+    if (clearanceCV > CLEARANCE_CV_THRESH) {
+      reason = "Inconsistent lift";
+      return true;
+    }
+
+    // 3. Stride Length Variation Check
+    float strideCV = calculateCV(strideHistory, sampleCount);
+    if (strideCV > STRIDE_CV_THRESH) {
+      reason = "Uneven stride";
+      return true;
+    }
+
+    // 4. Cadence Bounds Check
+    if (currentCadence > 0 && currentCadence < MIN_CADENCE) {
+      reason = "Shuffling gait";
+      return true;
+    }
+    if (currentCadence > MAX_CADENCE) {
+      reason = "Rushing gait";
+      return true;
+    }
+
+    return false; // Normal gait
+  }
+
+private:
+  float calculateCV(float *data, int count) {
+    // Coefficient of Variation = (stddev / mean)
+    float sum = 0, mean = 0, variance = 0;
+
+    for (int i = 0; i < count; i++) {
+      sum += data[i];
+    }
+    mean = sum / count;
+
+    if (mean < 0.001f)
+      return 0; // Avoid divide by zero
+
+    for (int i = 0; i < count; i++) {
+      float diff = data[i] - mean;
+      variance += diff * diff;
+    }
+    variance /= count;
+
+    float stddev = sqrt(variance);
+    return stddev / mean;
+  }
+};
+
+GaitAnomalyDetector anomalyDetector;
+
+// Abnormality tracking
+bool gaitAbnormal = false;
+String abnormalReason = "";
+unsigned long lastAbnormalTime = 0;
+const unsigned long ABNORMAL_ALERT_COOLDOWN = 3000; // 3 seconds
+
+// =============================================================================
 // AUTO-CALIBRATION
 // =============================================================================
 void checkAutoCalibration() {
@@ -223,6 +328,28 @@ void checkAutoCalibration() {
 }
 
 // =============================================================================
+// ABNORMALITY ALERT (PHASE 3)
+// =============================================================================
+void triggerAbnormalAlert() {
+  // Flash red LED (M5StickC Plus 2 builtin LED on GPIO10)
+  pinMode(10, OUTPUT);
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(10, HIGH);
+    delay(100);
+    digitalWrite(10, LOW);
+    delay(100);
+  }
+
+  // Beep using speaker
+  M5.Speaker.tone(2000, 200); // 2kHz for 200ms
+  delay(250);
+  M5.Speaker.tone(2000, 200); // Double beep
+
+  // Show toast on device screen
+  showToast("⚠ " + abnormalReason, 2000);
+}
+
+// =============================================================================
 // BATTERY MANAGEMENT
 // =============================================================================
 void updateBattery() {
@@ -248,10 +375,14 @@ void updateBattery() {
 // DATA VALIDATION
 // =============================================================================
 void validateData() {
-  // Catch obviously wrong values
-  if (abs(vel.x) > 5.0f) { // 5 m/s = 18 km/h (max running speed)
+  // Only validate if device is calibrated and has actually moved
+  if (!isCalibrated || stepCount == 0)
+    return;
+
+  // Catch obviously wrong values (only during movement)
+  if (abs(vel.x) > 8.0f) { // 8 m/s = 28.8 km/h (increased threshold)
     vel.x = 0;
-    showToast("Vel overflow!");
+    showToast("Vel overflow!", 1000);
   }
 
   if (abs(vel.z) > 3.0f) {
@@ -343,6 +474,31 @@ void ZUPT_INS_Update(float dt) {
     float instStability = constrain(100.0f * (1.0f - deviation), 0.0f, 100.0f);
     stabilityIndex = (stabilityIndex * 0.9f) + (instStability * 0.1f);
 
+    // === PHASE 3: GAIT ABNORMALITY DETECTION ===
+    float stepTime = dur / 1000.0f; // Convert to seconds
+    float clearance = maxSwing;     // Peak height this step
+
+    // Add step to anomaly detector
+    anomalyDetector.addStep(stepTime, clearance, strideLength);
+
+    // Check for abnormalities
+    String reason = "";
+    bool abnormalDetected =
+        anomalyDetector.detectAbnormality(currentCadence, reason);
+
+    if (abnormalDetected &&
+        (millis() - lastAbnormalTime > ABNORMAL_ALERT_COOLDOWN)) {
+      gaitAbnormal = true;
+      abnormalReason = reason;
+      lastAbnormalTime = millis();
+
+      // Trigger device alert (LED + beep + toast)
+      triggerAbnormalAlert();
+    } else if (!abnormalDetected) {
+      gaitAbnormal = false;
+      abnormalReason = "";
+    }
+
     maxSwing = 0;
   }
 
@@ -377,7 +533,9 @@ void getStatusJSON() {
   json += "\"is_stat\":" + String(isStance) + ",";
   json += "\"battery_pct\":" + String(batteryPercent) + ",";
   json += "\"battery_v\":" + String(batteryVoltage, 2) + ",";
-  json += "\"calibrated\":" + String(isCalibrated);
+  json += "\"calibrated\":" + String(isCalibrated) + ",";
+  json += "\"abnormal\":" + String(gaitAbnormal ? "true" : "false") + ",";
+  json += "\"abnormal_reason\":\"" + abnormalReason + "\"";
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -661,6 +819,9 @@ void setup() {
   // Initialize ZUPT detector
   zuptDetector.init();
 
+  // Initialize anomaly detector (PHASE 3)
+  anomalyDetector.init();
+
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
   server.on("/", HTTP_GET,
             []() { server.send_P(200, "text/html", index_html); });
@@ -720,7 +881,7 @@ void setup() {
     logFile.println("# Sample Rate: 100Hz");
     logFile.println("#");
     logFile.println("t,ax,ay,az,gx,gy,gz,q0,q1,q2,q3,roll,pitch,yaw,vx,vy,vz,"
-                    "px,py,pz,phase,cadence,stability");
+                    "px,py,pz,phase,cadence,stability,abnormal");
     server.send(200);
   });
   server.on("/api/record/stop", HTTP_POST, []() {
@@ -783,10 +944,11 @@ void loop() {
     if (isRecording && logFile) {
       logFile.printf(
           "%lu,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.4f,%.1f,%.1f,%."
-          "1f,%.3f,%.3f,%.3f,%.4f,%.4f,%.4f,%d,%.1f,%.1f\n",
+          "1f,%.3f,%.3f,%.3f,%.4f,%.4f,%.4f,%d,%.1f,%.1f,%d\n",
           now, accX, accY, accZ, gyroX, gyroY, gyroZ, q0, q1, q2, q3, roll,
           pitch, yaw, vel.x, vel.y, vel.z, pos.x, pos.y, pos.z,
-          isStance ? 0 : 1, currentCadence, stabilityIndex);
+          isStance ? 0 : 1, currentCadence, stabilityIndex,
+          gaitAbnormal ? 1 : 0);
     }
   }
 
