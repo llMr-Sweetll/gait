@@ -24,6 +24,7 @@
 #include <WiFi.h>
 
 #include "MadgwickFilter.h"
+#include "esp_task_wdt.h" // PHASE 4: Watchdog
 #include "web_page.h"
 
 // =============================================================================
@@ -1097,11 +1098,52 @@ bool handleFileRead(String path) {
   return false;
 }
 
+// PHASE 4: Filesystem Auto-Cleanup
+void checkStorageAndCleanup() {
+  size_t total = LittleFS.totalBytes();
+  size_t used = LittleFS.usedBytes();
+  float usagePercent = (float)used / total;
+
+  if (usagePercent > 0.9f) { // >90% full
+    // Find oldest CSV file
+    String oldestFile = "";
+    time_t oldestTime = 0xFFFFFFFF;
+    int fileCount = 0;
+
+    File root = LittleFS.open("/");
+    if (root) {
+      File file = root.openNextFile();
+      while (file) {
+        String name = String(file.name());
+        if (name.endsWith(".csv")) {
+          fileCount++;
+          time_t modified = file.getLastWrite();
+          if (modified < oldestTime) {
+            oldestTime = modified;
+            oldestFile = name;
+          }
+        }
+        file = root.openNextFile();
+      }
+    }
+
+    // Only delete if we have more than 5 files
+    if (fileCount > 5 && oldestFile.length() > 0) {
+      LittleFS.remove(oldestFile);
+      showToast("Storage low, deleted: " + oldestFile, 3000);
+    } else if (fileCount <= 5) {
+      showToast("Storage full! Delete files manually", 3000);
+    }
+  }
+}
+
 void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
   M5.Display.setRotation(3);
   M5.Display.setBrightness(50); // Power saving: 30% brightness
+
+  // PHASE 3.5: Power button long-press handled in loop() (no API needed)
 
   canvas.createSprite(M5.Display.width(), M5.Display.height());
   LittleFS.begin(true);
@@ -1114,6 +1156,12 @@ void setup() {
 
   // Initialize anomaly detector (PHASE 3)
   anomalyDetector.init();
+
+  // PHASE 4: Enable Watchdog Timer (60s timeout) - ESP-IDF v5.x
+  esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = 60000, .idle_core_mask = 0, .trigger_panic = true};
+  esp_task_wdt_init(&wdt_config);
+  esp_task_wdt_add(NULL);
 
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
   server.on("/", HTTP_GET,
@@ -1156,6 +1204,9 @@ void setup() {
       filename += "webrec_" + String(millis());
     }
     filename += ".csv";
+
+    // PHASE 4: Check storage and cleanup if needed
+    checkStorageAndCleanup();
 
     isRecording = true;
     logFile = LittleFS.open(filename, FILE_WRITE);
@@ -1214,6 +1265,9 @@ void setup() {
   pos = {0, 0, 0};
   vel = {0, 0, 0};
 
+  // PHASE 4: Configure wake from deep sleep on power button
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, LOW);
+
   showToast("GaitOS V2.0", 2000);
 }
 
@@ -1221,9 +1275,30 @@ void setup() {
 unsigned long btnPwrPressTime = 0;
 bool btnPwrLongPress = false;
 
+// PHASE 4: Deep Sleep tracking
+unsigned long lastActivityTime = 0;
+float lastStepCount = 0;
+const unsigned long SLEEP_TIMEOUT = 300000; // 5 minutes in ms
+
 void loop() {
   M5.update();
   server.handleClient();
+
+  // PHASE 4: Reset watchdog timer every loop
+  esp_task_wdt_reset();
+
+  // PHASE 4: Track activity for deep sleep
+  if (stepCount > lastStepCount || isRecording) {
+    lastActivityTime = millis();
+    lastStepCount = stepCount;
+  }
+
+  // PHASE 4: Enter deep sleep after 5min inactivity
+  if (millis() - lastActivityTime > SLEEP_TIMEOUT) {
+    showToast("Going to sleep...", 2000);
+    delay(2000);
+    M5.Power.deepSleep();
+  }
 
   unsigned long now = millis();
   if (now - lastSampleTime >= SAMPLE_INTERVAL_MS) {

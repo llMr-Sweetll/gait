@@ -599,6 +599,28 @@ const char index_html[] PROGMEM = R"rawliteral(
             </div>
         </div>
     </div>
+    
+    <!-- PHASE 4: Session Comparison -->
+    <div class="card">
+        <div class="metric-label" style="margin-bottom: 15px;">Session Comparison</div>
+        <div style="display:flex; gap:10px; margin-bottom:15px;">
+            <select id="compareSession1" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--card-bg); color:var(--text);">
+                <option value="">Select Session 1...</option>
+            </select>
+            <select id="compareSession2" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--card-bg); color:var(--text);">
+                <option value="">Select Session 2...</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="compareSessions()" style="width:100%; margin-bottom:15px;">
+            Compare Trajectories
+        </button>
+        <div id="comparisonResults" style="display:none;">
+            <div class="chart-wrapper" style="height:250px; margin-bottom:15px;">
+                <canvas id="comparisonChart"></canvas>
+            </div>
+            <div id="comparisonStats"></div>
+        </div>
+    </div>
 
     <!-- Floating Action Bar -->
     <div class="action-bar">
@@ -1150,6 +1172,212 @@ const char index_html[] PROGMEM = R"rawliteral(
                 toast.style.transition = 'opacity 0.3s';
                 setTimeout(() => toast.remove(), 300);
             }, 2000);
+        }
+        
+        // PHASE 4: Session Comparison Functions
+        function populateSessionSelectors() {
+            fetch('/api/logs')
+                .then(r => r.json())
+                .then(logs => {
+                    const opts1 = document.getElementById('compareSession1');
+                    const opts2 = document.getElementById('compareSession2');
+                    
+                    opts1.innerHTML = '<option value="">Select Session 1...</option>';
+                    opts2.innerHTML = '<option value="">Select Session 2...</option>';
+                    
+                    logs.forEach(log => {
+                        opts1.innerHTML += `<option value="${log}">${log}</option>`;
+                        opts2.innerHTML += `<option value="${log}">${log}</option>`;
+                    });
+                });
+        }
+        
+        async function loadCSV(filename) {
+            const response = await fetch('/' + filename);
+            const csvText = await response.text();
+            
+            const lines = csvText.split('\\n').filter(l => l && !l.startsWith('#'));
+            const headers = lines[0].split(',').map(h => h.trim());
+            const data = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const values = lines[i].split(',');
+                const row = {};
+                headers.forEach((h, idx) => {
+                    const val = values[idx];
+                    row[h] = isNaN(val) ? val : parseFloat(val);
+                });
+                data.push(row);
+            }
+            
+            return data;
+        }
+        
+        let comparisonChartInstance = null;
+        
+        async function compareSessions() {
+            const s1 = document.getElementById('compareSession1').value;
+            const s2 = document.getElementById('compareSession2').value;
+            
+            if (!s1 || !s2) {
+                alert('Please select two sessions to compare');
+                return;
+            }
+            
+            if (s1 === s2) {
+                alert('Please select two different sessions');
+                return;
+            }
+            
+            try {
+                const data1 = await loadCSV(s1);
+                const data2 = await loadCSV(s2);
+                
+                // Extract trajectories (px vs pz)
+                const traj1 = data1.map(d => ({x: d.px || 0, y: d.pz || 0}));
+                const traj2 = data2.map(d => ({x: d.px || 0, y: d.pz || 0}));
+                
+                // Show results
+                document.getElementById('comparisonResults').style.display = 'block';
+                
+                // Destroy old chart if exists
+                if (comparisonChartInstance) {
+                    comparisonChartInstance.destroy();
+                }
+                
+                // Create overlay chart
+                const ctx = document.getElementById('comparisonChart').getContext('2d');
+                comparisonChartInstance = new Chart(ctx, {
+                    type: 'scatter',
+                    data: {
+                        datasets: [
+                            {
+                                label: s1,
+                                data: traj1,
+                                borderColor: '#00D9FF',
+                                backgroundColor: 'transparent',
+                                showLine: true,
+                                pointRadius: 1,
+                                borderWidth: 2
+                            },
+                            {
+                                label: s2,
+                                data: traj2,
+                                borderColor: '#FF9500',
+                                backgroundColor: 'transparent',
+                                showLine: true,
+                                pointRadius: 1,
+                                borderWidth: 2
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                type: 'linear',
+                                position: 'bottom',
+                                title: {
+                                    display: true,
+                                    text: 'Forward (m)',
+                                    color: '#888'
+                                },
+                                grid: { color: 'rgba(255,255,255,0.1)' },
+                                ticks: { color: '#888' }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Lateral (m)',
+                                    color: '#888'
+                                },
+                                grid: { color: 'rgba(255,255,255,0.1)' },
+                                ticks: { color: '#888' }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: '#fff' }
+                            }
+                        }
+                    }
+                });
+                
+                // Calculate and show statistics comparison
+                showComparisonStats(data1, data2, s1, s2);
+                
+                showToast('✓ Sessions compared successfully');
+                
+            } catch (err) {
+                console.error('Comparison error:', err);
+                alert('Error loading sessions: ' + err.message);
+            }
+        }
+        
+        function showComparisonStats(d1, d2, name1, name2) {
+            const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+            
+            const cadence1 = avg(d1.map(r => r.cadence || 0).filter(v => v > 0));
+            const cadence2 = avg(d2.map(r => r.cadence || 0).filter(v => v > 0));
+            
+            const stab1 = avg(d1.map(r => r.stability || 0).filter(v => v > 0));
+            const stab2 = avg(d2.map(r => r.stability || 0).filter(v => v > 0));
+            
+            const dist1 = Math.max(...d1.map(r => r.dist_m || 0));
+            const dist2 = Math.max(...d2.map(r => r.dist_m || 0));
+            
+            const html = `
+                <table style="width:100%; border-collapse: collapse; color:#fff;">
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <th style="padding:8px; text-align:left; color:#888;">Metric</th>
+                        <th style="padding:8px; text-align:right;">${name1.substring(0, 20)}</th>
+                        <th style="padding:8px; text-align:right;">${name2.substring(0, 20)}</th>
+                        <th style="padding:8px; text-align:right;">Δ</th>
+                    </tr>
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:8px;">Avg Cadence (spm)</td>
+                        <td style="padding:8px; text-align:right;">${cadence1.toFixed(1)}</td>
+                        <td style="padding:8px; text-align:right;">${cadence2.toFixed(1)}</td>
+                        <td style="padding:8px; text-align:right; color:${cadence2 > cadence1 ? '#32D74B' : '#FF453A'};">
+                            ${(cadence2 - cadence1).toFixed(1)}
+                        </td>
+                    </tr>
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:8px;">Avg Stability (%)</td>
+                        <td style="padding:8px; text-align:right;">${stab1.toFixed(1)}</td>
+                        <td style="padding:8px; text-align:right;">${stab2.toFixed(1)}</td>
+                        <td style="padding:8px; text-align:right; color:${stab2 > stab1 ? '#32D74B' : '#FF453A'};">
+                            ${(stab2 - stab1).toFixed(1)}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:8px;">Distance (m)</td>
+                        <td style="padding:8px; text-align:right;">${dist1.toFixed(2)}</td>
+                        <td style="padding:8px; text-align:right;">${dist2.toFixed(2)}</td>
+                        <td style="padding:8px; text-align:right; color:#888;">
+                            ${(dist2 - dist1).toFixed(2)}
+                        </td>
+                    </tr>
+                </table>
+            `;
+            
+            document.getElementById('comparisonStats').innerHTML = html;
+        }
+        
+        // Populate session selectors on logs fetch
+        const originalFetchLogs = fetchLogs;
+        if (typeof fetchLogs === 'function') {
+            fetchLogs = function() {
+                originalFetchLogs();
+                populateSessionSelectors();
+            };
+        } else {
+            // If fetch logs doesn't exist, create it
+            function fetchLogs() {
+                populateSessionSelectors();
+            }
         }
     </script>
 </body>
