@@ -1,9 +1,20 @@
 /**
- * M5StickC Plus2 GaitOS V13.0 (Fixed & Refined)
+ * M5StickC Plus2 GaitOS V2.0 (Complete Rewrite)
  *
- * "Professional" Edition
- * - Hybrid: ZUPT Physics + Empirical Limits.
- * - Architecture: M5Unified + LittleFS + WiFi + WebServer.
+ * ANKLE-MOUNTED Gait Analysis System
+ * - Madgwick quaternion-based orientation tracking
+ * - Adaptive ZUPT with variance-based detection
+ * - Auto-calibration on stillness
+ * - Real stride length integration
+ * - Battery management
+ *
+ * Architecture: M5Unified + LittleFS + WiFi + WebServer
+ *
+ * BREAKING CHANGES from V1.3:
+ * - Removed HFC metric (no validation)
+ * - Changed CSV format (added quaternions)
+ * - Ankle mounting only (not foot)
+ * - New ZUPT algorithm (adaptive thresholds)
  */
 
 #include <Arduino.h>
@@ -12,10 +23,12 @@
 #include <WebServer.h>
 #include <WiFi.h>
 
+#include "MadgwickFilter.h"
 #include "web_page.h"
 
+
 // =============================================================================
-// TYPES (MOVED TO TOP)
+// TYPES
 // =============================================================================
 struct Vector3 {
   float x, y, z;
@@ -29,28 +42,31 @@ struct Point {
 enum SiteState { STANCE, SWING };
 
 // =============================================================================
-// CONFIG
+// CONFIG - OPTIMIZED FOR ANKLE MOUNTING
 // =============================================================================
 const char *WIFI_SSID = "GAIT-LOGGER";
 const char *WIFI_PASS = "circumduct123";
 const int SAMPLE_INTERVAL_MS = 10; // 100Hz
 
-// Tuning Parameters (Core Tweaks)
-// Removed duplicates, keeping Dissertation-Grade Consistencies
-// Tuning Parameters (Core Tweaks - Now Mutable for Runtime Tuning)
-float ZUPT_THRESH_DPS = 40.0f;   // Angular rate threshold for Stance
-float ZUPT_ACCEL_G = 0.2f;       // Linear Accel threshold for Stance
-float MIN_SWING_ACCEL = 1.2f;    // Minimum energy to valid swing
-float MIN_STEP_TIME_MS = 300.0f; // Minimum time between steps
+// Tuning Parameters - Ankle-specific thresholds
+float ZUPT_THRESH_DPS = 35.0f;   // Lower for ankle (more rotation than foot)
+float ZUPT_ACCEL_G = 0.25f;      // Higher for ankle (more shock)
+float MIN_SWING_ACCEL = 1.5f;    // Higher peaks at ankle
+float MIN_STEP_TIME_MS = 280.0f; // Slightly faster detection
 
 // =============================================================================
 // GLOBAL STATE
 // =============================================================================
+// IMU Raw Data
 float accX, accY, accZ;
 float gyroX, gyroY, gyroZ;
-float pitch = 0, roll = 0, yaw = 0;
 
-// Kinematics (World Frame)
+// Orientation (Madgwick filter output)
+float q0 = 1.0f, q1 = 0.0f, q2 = 0.0f, q3 = 0.0f; // Quaternion
+float roll = 0, pitch = 0, yaw = 0;               // Euler angles (derived)
+MadgwickFilter madgwick;
+
+// Kinematics (Navigation Frame)
 Vector3 vel = {0, 0, 0};
 Vector3 pos = {0, 0, 0}; // x=forward, y=lateral, z=vertical
 
@@ -61,13 +77,28 @@ float distanceTotal = 0;
 float stepCount = 0;
 float currentCadence = 0;
 float stabilityIndex = 100.0f;
-float hipFootCoupling = 0.0f;
+
+// Stride tracking
+float lastStanceX = 0;
+float recentStrides[10] = {0};
+int strideIdx = 0;
+
+// Auto-calibration
+unsigned long stillStartTime = 0;
+bool isStill = false;
+bool isCalibrated = false;
+float gyroBiasX = 0, gyroBiasY = 0, gyroBiasZ = 0;
+
+// Battery
+float batteryVoltage = 0;
+int batteryPercent = 100;
+unsigned long lastBatteryCheck = 0;
 
 // Data Structures (Ring Buffers)
 #define TRAJECTORY_LEN 256
 Point trajectory[TRAJECTORY_LEN];
 int trajHead = 0;
-int trajCount = 0; // Track valid points
+int trajCount = 0;
 
 // Web Server
 WebServer server(80);
@@ -85,89 +116,247 @@ void showToast(String msg, int durationMs = 1500) {
 }
 
 // =============================================================================
-// HELPER MATH
+// ADAPTIVE ZUPT DETECTOR
 // =============================================================================
-// Simple Madgwick or Complementary Filter Component
-// For simplicity in V13, we focus on Physics + ZUPT.
-// We assume M5Unified provides decent IMU abstraction, but we do raw
-// accumulation.
+class ZUPTDetector {
+private:
+  float accelWindow[20]; // 200ms window at 100Hz
+  float gyroWindow[20];
+  int windowIdx = 0;
+  float currentThreshold = 0.25f;
 
+public:
+  void init() {
+    for (int i = 0; i < 20; i++) {
+      accelWindow[i] = 1.0f;
+      gyroWindow[i] = 0.0f;
+    }
+    windowIdx = 0;
+  }
+
+  bool detectStance(float ax, float ay, float az, float gx, float gy, float gz,
+                    float currentCadence) {
+    // 1. Update sliding window
+    accelWindow[windowIdx] = sqrt(ax * ax + ay * ay + az * az);
+    gyroWindow[windowIdx] = sqrt(gx * gx + gy * gy + gz * gz);
+    windowIdx = (windowIdx + 1) % 20;
+
+    // 2. Adaptive threshold based on cadence (gait frequency)
+    if (currentCadence > 120) {
+      currentThreshold = 0.15f; // Stricter for fast walking/running
+      ZUPT_THRESH_DPS = 45.0f;
+    } else if (currentCadence < 60) {
+      currentThreshold = 0.35f; // Looser for slow gait
+      ZUPT_THRESH_DPS = 25.0f;
+    } else {
+      currentThreshold = 0.25f; // Normal walking
+      ZUPT_THRESH_DPS = 35.0f;
+    }
+
+    // 3. Variance check over window
+    float accelVar = calculateVariance(accelWindow, 20);
+    float gyroMag = avg(gyroWindow, 20);
+
+    // 4. Multi-criteria detection
+    bool lowAccelVar = (accelVar < currentThreshold);
+    bool lowGyro = (gyroMag < ZUPT_THRESH_DPS);
+    bool nearGravity = (abs(sqrt(ax * ax + ay * ay + az * az) - 1.0f) < 0.3f);
+
+    return (lowAccelVar && lowGyro && nearGravity);
+  }
+
+private:
+  float calculateVariance(float *data, int len) {
+    float mean = avg(data, len);
+    float variance = 0;
+    for (int i = 0; i < len; i++) {
+      variance += (data[i] - mean) * (data[i] - mean);
+    }
+    return variance / len;
+  }
+
+  float avg(float *data, int len) {
+    float sum = 0;
+    for (int i = 0; i < len; i++)
+      sum += data[i];
+    return sum / len;
+  }
+};
+
+ZUPTDetector zuptDetector;
+
+// =============================================================================
+// AUTO-CALIBRATION
+// =============================================================================
+void checkAutoCalibration() {
+  // Detect stillness: low accel variance + near gravity + low gyro
+  float accelMag = sqrt(accX * accX + accY * accY + accZ * accZ);
+  float gyroMag = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ);
+
+  bool currentlyStill = (abs(accelMag - 1.0f) < 0.05f) && (gyroMag < 5.0f);
+
+  if (currentlyStill) {
+    if (!isStill) {
+      // Just became still
+      stillStartTime = millis();
+      isStill = true;
+    } else if ((millis() - stillStartTime > 3000) && !isCalibrated) {
+      // Still for 3 seconds -> auto-calibrate
+      gyroBiasX = gyroX;
+      gyroBiasY = gyroY;
+      gyroBiasZ = gyroZ;
+
+      // Reset navigation state
+      pos = {0, 0, 0};
+      vel = {0, 0, 0};
+      stepCount = 0;
+      distanceTotal = 0;
+      lastStanceX = 0;
+      madgwick.reset();
+
+      isCalibrated = true;
+      showToast("Auto-Cal!", 2000);
+    }
+  } else {
+    isStill = false;
+    stillStartTime = 0;
+  }
+}
+
+// =============================================================================
+// BATTERY MANAGEMENT
+// =============================================================================
+void updateBattery() {
+  if (millis() - lastBatteryCheck < 5000)
+    return; // Check every 5s
+
+  // Read voltage from GPIO38 (voltage divider: Vbat -> 2:1 -> ADC)
+  int adcValue = analogRead(38);
+  batteryVoltage = (adcValue / 4095.0f) * 3.3f * 2.0f; // Vbat = ADC * 2
+
+  // Convert to percentage (LiPo: 4.2V=100%, 3.0V=0%)
+  batteryPercent = constrain(((batteryVoltage - 3.0f) / 1.2f) * 100, 0, 100);
+
+  lastBatteryCheck = millis();
+
+  // Low battery warning
+  if (batteryPercent < 15 && batteryPercent > 13) {
+    showToast("Low Battery!", 3000);
+  }
+}
+
+// =============================================================================
+// DATA VALIDATION
+// =============================================================================
+void validateData() {
+  // Catch obviously wrong values
+  if (abs(vel.x) > 5.0f) { // 5 m/s = 18 km/h (max running speed)
+    vel.x = 0;
+    showToast("Vel overflow!");
+  }
+
+  if (abs(vel.z) > 3.0f) {
+    vel.z = 0;
+  }
+
+  if (pos.z > 0.5f) { // Max clearance 50cm
+    pos.z = 0;
+  }
+
+  if (pos.z < -0.1f) { // Don't go below ground
+    pos.z = 0;
+  }
+}
+
+// =============================================================================
+// ZUPT-INS UPDATE (COMPLETE REWRITE)
+// =============================================================================
 void ZUPT_INS_Update(float dt) {
-  // 1. Magnitude Check
-  float gMag = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ);
-  float aMag = sqrt(accX * accX + accY * accY + accZ * accZ);
+  // 1. Rotate body-frame acceleration to navigation frame using quaternion
+  float accel_body[3] = {accX, accY, accZ};
+  float accel_nav[3];
+  madgwick.rotateVector(accel_body[0], accel_body[1], accel_body[2], accel_nav);
 
-  // 2. Stance Detection
-  bool stanceDetected =
-      (gMag < ZUPT_THRESH_DPS) && (abs(aMag - 1.0f) < ZUPT_ACCEL_G);
+  // 2. Remove gravity (navigation frame: Z-down convention, gravity = +1g on Z)
+  accel_nav[0] -= 0.0f; // No gravity on X
+  accel_nav[1] -= 0.0f; // No gravity on Y
+  accel_nav[2] -= 1.0f; // Remove 1g on Z
+
+  // 3. Convert to m/s²
+  float ax_world = accel_nav[0] * 9.81f;
+  float ay_world = accel_nav[1] * 9.81f;
+  float az_world = accel_nav[2] * 9.81f;
+
+  // 4. Adaptive ZUPT Detection
+  bool stanceDetected = zuptDetector.detectStance(accX, accY, accZ, gyroX,
+                                                  gyroY, gyroZ, currentCadence);
 
   if (stanceDetected) {
-    // Zero Velocity Update (Clamp)
+    // Zero Velocity Update (Clamp drift)
     vel = {0, 0, 0};
     isStance = true;
   } else {
     isStance = false;
 
-    // 3. Integration (World Frame Approx)
-    // We assume sensor is flat on foot for simple Z local frame projection
-    // In full implementation, proper Quaternion rotation is needed.
-    // Here we use a simplified "Vertical is AccZ - 1g" assumption for
-    // robustness on simple walks.
+    // 5. Integration (Navigation Frame)
+    vel.x += ax_world * dt;
+    vel.y += ay_world * dt;
+    vel.z += az_world * dt;
 
-    float az_world = accZ - 1.0f; // Remove Gravity
-    vel.z += az_world * 9.81f * dt;
+    pos.x += vel.x * dt;
+    pos.y += vel.y * dt;
     pos.z += vel.z * dt;
 
-    // Dampen Z drift to ground
+    // Dampen Z to ground
     if (pos.z < 0)
       pos.z = 0;
-
-    // Integrate Forward (X) - approximated by raw AccX
-    vel.x += accX * 9.81f * dt;
-    pos.x += vel.x * dt;
   }
 
-  // 4. Cadence & Stability Logic independent of Stance
-  // Check for Swing Peak
+  // 6. Step Detection & Cadence
   static float maxSwing = 0;
   if (!isStance && abs(accZ) > maxSwing)
     maxSwing = abs(accZ);
 
   if (isStance && maxSwing > MIN_SWING_ACCEL &&
       (millis() - lastStepTime > MIN_STEP_TIME_MS)) {
-    // Heel Strike Event Just Happened (or transition to stance)
+
+    // Step detected!
     unsigned long dur = millis() - lastStepTime;
     lastStepTime = millis();
     stepCount++;
 
-    // Metrics
+    // Stride length from integration (not hardcoded!)
+    float strideLength = abs(pos.x - lastStanceX);
+    if (strideLength > 0.2f && strideLength < 2.0f) { // Sanity check
+      distanceTotal += strideLength;
+      recentStrides[strideIdx] = strideLength;
+      strideIdx = (strideIdx + 1) % 10;
+    }
+    lastStanceX = pos.x;
+
+    // Cadence calculation
     float instCadence = 60000.0f / dur;
     currentCadence = (currentCadence * 0.8f) + (instCadence * 0.2f);
 
+    // Stability Index
     float deviation =
         abs(instCadence - currentCadence) / (currentCadence + 1.0f);
     float instStability = constrain(100.0f * (1.0f - deviation), 0.0f, 100.0f);
     stabilityIndex = (stabilityIndex * 0.9f) + (instStability * 0.1f);
 
-    // Distance Approx
-    distanceTotal += 0.7f; // Avg Step length placeholder or integral
     maxSwing = 0;
   }
 
-  // Hip Foot Coupling (Proxy)
-  // High VelX + Low Pitch Change ~ Hip Hike.
-  // We simulate "Pitch" change via GyroY integration or just raw GyroY.
-  hipFootCoupling = (abs(vel.x) * 10.0f) / (abs(gyroY) + 1.0f);
-
-  // Trajectory Buffer
+  // 7. Trajectory Buffer
   trajectory[trajHead].x = (int)(pos.x * 100);
-  trajectory[trajHead].y = (int)(pos.z * 100); // Screen Y is World Z
+  trajectory[trajHead].y = (int)(pos.z * 100);
   trajHead = (trajHead + 1) % TRAJECTORY_LEN;
   if (trajCount < TRAJECTORY_LEN)
     trajCount++;
-}
 
-float calculateHipProbe() { return hipFootCoupling; }
+  // 8. Data validation
+  validateData();
+}
 
 // =============================================================================
 // JSON API
@@ -176,15 +365,20 @@ void getStatusJSON() {
   String json = "{";
   json += "\"recording\":" + String(isRecording) + ",";
   json += "\"step_count\":" + String((int)stepCount) + ",";
-  json += "\"dist_m\":" + String(distanceTotal) + ",";
-  json += "\"cad\":" + String(currentCadence) + ",";
-  json += "\"stab\":" + String(stabilityIndex) + ",";
-  json += "\"hfc\":" + String(hipFootCoupling) + ",";
+  json += "\"dist_m\":" + String(distanceTotal, 2) + ",";
+  json += "\"cad\":" + String(currentCadence, 1) + ",";
+  json += "\"stab\":" + String(stabilityIndex, 1) + ",";
   json += "\"px\":" + String(pos.x, 3) + ",";
+  json += "\"py\":" + String(pos.y, 3) + ",";
   json += "\"pz\":" + String(pos.z, 3) + ",";
   json += "\"phase\":" + String(isStance ? 0 : 1) + ",";
-  json += "\"pitch\":" + String(pitch) + ",";
-  json += "\"is_stat\":" + String(isStance);
+  json += "\"pitch\":" + String(pitch, 1) + ",";
+  json += "\"roll\":" + String(roll, 1) + ",";
+  json += "\"yaw\":" + String(yaw, 1) + ",";
+  json += "\"is_stat\":" + String(isStance) + ",";
+  json += "\"battery_pct\":" + String(batteryPercent) + ",";
+  json += "\"battery_v\":" + String(batteryVoltage, 2) + ",";
+  json += "\"calibrated\":" + String(isCalibrated);
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -206,10 +400,6 @@ void drawPulse(M5Canvas &c, int x, int y, int r, uint16_t color) {
   float breath = (sin(phase * 6.28f) + 1.0f) * 0.5f;
   c.fillCircle(x, y, r, color);
   int haloR = r + 2 + (breath * 6);
-  uint8_t alpha = 255 - (breath * 200);
-  // Fixed: Use M5.Display.alphaBlend explicitly or manual color
-  // Since c.alphaBlend might not exist depending on M5Unified version
-  // We just draw a ring with dimmer color for compatibility
   c.drawCircle(x, y, haloR, color);
 }
 
@@ -221,7 +411,12 @@ public:
   void onDraw(M5Canvas &c) override {
     c.fillRect(0, 0, 240, 135, BLACK);
     c.setTextColor(WHITE);
-    c.drawCenterString("GaitOS V13", 120, 20, 2);
+    c.drawCenterString("GaitOS V2.0", 120, 20, 2);
+
+    // Battery indicator
+    c.setTextSize(1);
+    c.setCursor(180, 5);
+    c.printf("Bat:%d%%", batteryPercent);
 
     const char *names[3] = {"Lab", "Scope", "Net"};
     int startX = 60, gap = 60;
@@ -243,16 +438,35 @@ public:
   void onDraw(M5Canvas &c) override {
     c.fillScreen(BLACK);
     c.setTextColor(WHITE);
+
+    // Battery
+    c.setTextSize(1);
+    c.setCursor(10, 5);
+    c.printf("Bat: %d%%", batteryPercent);
+
+    // Calibration status
+    c.setCursor(150, 5);
+    if (isCalibrated) {
+      c.setTextColor(GREEN);
+      c.print("CAL OK");
+    } else {
+      c.setTextColor(RED);
+      c.print("NO CAL");
+    }
+
+    c.setTextColor(WHITE);
     c.setTextSize(2);
-    c.setCursor(10, 20);
+    c.setCursor(10, 25);
     c.printf("Steps: %.0f", stepCount);
     c.setCursor(10, 50);
-    c.printf("Cadence: %.0f", currentCadence);
+    c.printf("Cad: %.0f", currentCadence);
     c.setTextSize(1);
+    c.setCursor(10, 75);
+    c.printf("Dist: %.1fm", distanceTotal);
     c.setCursor(10, 90);
     c.printf("Stability: %.0f%%", stabilityIndex);
-    c.setCursor(10, 110);
-    c.printf("HFC: %.1f", hipFootCoupling);
+    c.setCursor(10, 105);
+    c.printf("Height: %.2fm", pos.z);
 
     if (isRecording)
       c.fillCircle(220, 20, 8, RED);
@@ -260,8 +474,26 @@ public:
   void onBtnA() override {
     isRecording = !isRecording;
     if (isRecording) {
+      // Enhanced CSV header with metadata
       logFile = LittleFS.open("/log_" + String(millis()) + ".csv", FILE_WRITE);
-      logFile.println("t,ax,ay,az,gx,gy,gz,px,pz,phase,cadence,stability,hfc");
+      logFile.println("# GaitOS V2.0 - Ankle Mounted");
+      logFile.println("# Sample Rate: 100Hz");
+      logFile.println("# ZUPT Threshold: " + String(ZUPT_THRESH_DPS) +
+                      " deg/s");
+      logFile.println("# Calibration: " +
+                      String(isCalibrated ? "Auto" : "Manual"));
+      logFile.println("#");
+      logFile.println("# Columns:");
+      logFile.println(
+          "# t(ms), ax(g), ay(g), az(g), gx(dps), gy(dps), gz(dps),");
+      logFile.println("# q0, q1, q2, q3 (quaternion),");
+      logFile.println("# roll(deg), pitch(deg), yaw(deg),");
+      logFile.println("# vx(m/s), vy(m/s), vz(m/s),");
+      logFile.println("# px(m), py(m), pz(m),");
+      logFile.println("# phase(0=stance,1=swing), cadence(spm), stability(%)");
+      logFile.println("#");
+      logFile.println("t,ax,ay,az,gx,gy,gz,q0,q1,q2,q3,roll,pitch,yaw,vx,vy,vz,"
+                      "px,py,pz,phase,cadence,stability");
       showToast("Rec Start");
     } else {
       if (logFile)
@@ -276,24 +508,29 @@ class ScopeApp : public App {
 public:
   void onDraw(M5Canvas &c) override {
     c.fillScreen(BLACK);
+    c.setTextColor(WHITE);
+    c.setTextSize(1);
+    c.setCursor(5, 5);
+    c.printf("Trajectory (Z vs X)");
+
     int cx = 20, cy = 120;
     // Draw Trajectory from ring buffer
-    for (int i = 0; i < TRAJECTORY_LEN - 1; i++) {
-      int idx = (trajHead + i) % TRAJECTORY_LEN;
+    for (int i = 0; i < trajCount - 1 && i < TRAJECTORY_LEN - 1; i++) {
+      int idx = (trajHead - trajCount + i + TRAJECTORY_LEN) % TRAJECTORY_LEN;
       Point p1 = trajectory[idx];
       Point p2 = trajectory[(idx + 1) % TRAJECTORY_LEN];
 
-      // Simple pixel wrap logic
-      int x1 = (cx + p1.x) % 240;
+      int x1 = cx + p1.x;
       int y1 = cy - p1.y;
-      int x2 = (cx + p2.x) % 240;
+      int x2 = cx + p2.x;
       int y2 = cy - p2.y;
 
-      // Avoid wrap-around lines
-      if (abs(x2 - x1) < 20)
+      // Bounds check
+      if (x1 >= 0 && x1 < 240 && x2 >= 0 && x2 < 240 && y1 >= 0 && y1 < 135 &&
+          y2 >= 0 && y2 < 135) {
         c.drawLine(x1, y1, x2, y2, CYAN);
+      }
     }
-    c.drawCenterString("Trajectory (Z vs X)", 120, 5, 1);
   }
 };
 
@@ -399,8 +636,16 @@ void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
   M5.Display.setRotation(3);
+  M5.Display.setBrightness(50); // Power saving: 30% brightness
+
   canvas.createSprite(M5.Display.width(), M5.Display.height());
   LittleFS.begin(true);
+
+  // Initialize Madgwick filter
+  madgwick.begin(0.1f); // Beta tuned for ankle mounting
+
+  // Initialize ZUPT detector
+  zuptDetector.init();
 
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
   server.on("/", HTTP_GET,
@@ -418,6 +663,9 @@ void setup() {
     stepCount = 0;
     currentCadence = 0;
     stabilityIndex = 100.0f;
+    lastStanceX = 0;
+    isCalibrated = true;
+    madgwick.reset();
     showToast("Zeroed!", 1000);
     server.send(200);
   });
@@ -426,7 +674,11 @@ void setup() {
   server.on("/api/record/start", HTTP_POST, []() {
     isRecording = true;
     logFile = LittleFS.open("/webrec_" + String(millis()) + ".csv", FILE_WRITE);
-    logFile.println("t,ax,ay,az,gx,gy,gz,px,pz,phase,cadence,stability,hfc");
+    logFile.println("# GaitOS V2.0 - Ankle Mounted");
+    logFile.println("# Sample Rate: 100Hz");
+    logFile.println("#");
+    logFile.println("t,ax,ay,az,gx,gy,gz,q0,q1,q2,q3,roll,pitch,yaw,vx,vy,vz,"
+                    "px,py,pz,phase,cadence,stability");
     server.send(200);
   });
   server.on("/api/record/stop", HTTP_POST, []() {
@@ -448,6 +700,8 @@ void setup() {
   // Zero Sensors Init
   pos = {0, 0, 0};
   vel = {0, 0, 0};
+
+  showToast("GaitOS V2.0", 2000);
 }
 
 void loop() {
@@ -458,16 +712,39 @@ void loop() {
   if (now - lastSampleTime >= SAMPLE_INTERVAL_MS) {
     float dt = (now - lastSampleTime) / 1000.0f;
     lastSampleTime = now;
-    M5.Imu.getAccel(&accX, &accY, &accZ); // Correct vars
+
+    // Read IMU
+    M5.Imu.getAccel(&accX, &accY, &accZ);
     M5.Imu.getGyro(&gyroX, &gyroY, &gyroZ);
 
+    // Auto-calibration check
+    checkAutoCalibration();
+
+    // Apply gyro bias correction
+    gyroX -= gyroBiasX;
+    gyroY -= gyroBiasY;
+    gyroZ -= gyroBiasZ;
+
+    // Update Madgwick filter (gyro in rad/s)
+    madgwick.update(gyroX * DEG_TO_RAD, gyroY * DEG_TO_RAD, gyroZ * DEG_TO_RAD,
+                    accX, accY, accZ, dt);
+    madgwick.getQuaternion(&q0, &q1, &q2, &q3);
+    madgwick.getEuler(&roll, &pitch, &yaw);
+
+    // ZUPT-INS Update
     ZUPT_INS_Update(dt);
 
+    // Battery check
+    updateBattery();
+
+    // Data recording
     if (isRecording && logFile) {
       logFile.printf(
-          "%lu,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.4f,%.4f,%d,%.1f,%.1f,%.2f\n",
-          now, accX, accY, accZ, gyroX, gyroY, gyroZ, pos.x, pos.z,
-          isStance ? 0 : 1, currentCadence, stabilityIndex, hipFootCoupling);
+          "%lu,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.4f,%.1f,%.1f,%."
+          "1f,%.3f,%.3f,%.3f,%.4f,%.4f,%.4f,%d,%.1f,%.1f\n",
+          now, accX, accY, accZ, gyroX, gyroY, gyroZ, q0, q1, q2, q3, roll,
+          pitch, yaw, vel.x, vel.y, vel.z, pos.x, pos.y, pos.z,
+          isStance ? 0 : 1, currentCadence, stabilityIndex);
     }
   }
 

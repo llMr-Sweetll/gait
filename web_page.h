@@ -161,9 +161,9 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="unit">cm</div>
         </div>
         <div class="card" style="padding:12px; text-align:center;">
-            <div class="label">HFC</div>
-            <div style="font-size:18px; font-weight:700; margin-top:4px;" id="val-hfc">0</div>
-            <div class="unit">idx</div>
+            <div class="label">Battery</div>
+            <div style="font-size:18px; font-weight:700; margin-top:4px;" id="val-battery">100</div>
+            <div class="unit">%</div>
         </div>
         <div class="card" style="padding:12px; text-align:center;">
             <div class="label">Dist</div>
@@ -347,7 +347,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             document.getElementById('val-cad').innerText = d.cad.toFixed(0);
             document.getElementById('val-dist').innerText = d.dist_m.toFixed(1);
             document.getElementById('val-clear').innerText = (d.pz * 100).toFixed(1);
-            document.getElementById('val-hfc').innerText = d.hfc.toFixed(0);
+            document.getElementById('val-battery').innerText = d.battery_pct || 100;
             document.getElementById('val-phase').innerText = d.phase ? "SWING" : "STANCE";
             
             // Stability Color
