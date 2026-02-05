@@ -572,6 +572,11 @@ void drawBatteryIcon(M5Canvas &c, int x, int y, int percent) {
   }
 }
 
+// Forward declarations for App classes
+class LauncherApp;
+extern LauncherApp launcher;
+extern App *currentApp;
+
 // 1. LAUNCHER (PHASE 3.5: Redesigned)
 class LauncherApp : public App {
   int sel = 0;
@@ -895,7 +900,7 @@ private:
   int fileCount = 0;
 
 public:
-  void onActivate() override {
+  void onActivate() {
     fileCount = 0;
     File root = LittleFS.open("/");
     if (root) {
