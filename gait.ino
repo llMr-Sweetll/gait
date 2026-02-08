@@ -1238,25 +1238,31 @@ void setup() {
   // NEW: Logs & Downloads
   server.on("/api/logs", HTTP_GET, handleLogsList);
 
-  // DELETE API for file management (PHASE 3.5)
-  server.on("/api/delete", HTTP_DELETE, []() {
-    String uri = server.uri();
-    String filename = uri.substring(12); // Remove "/api/delete/"
-    if (!filename.startsWith("/")) {
-      filename = "/" + filename;
-    }
-
-    if (LittleFS.exists(filename)) {
-      LittleFS.remove(filename);
-      server.send(200, "text/plain", "Deleted");
-    } else {
-      server.send(404, "text/plain", "File not found");
-    }
-  });
+  // DELETE API moved to onNotFound handler to support dynamic paths
 
   server.onNotFound([]() {
-    if (!handleFileRead(server.uri()))
+    String uri = server.uri();
+    
+    // Handle DELETE requests for file management (PHASE 3.5 - FIXED)
+    if (server.method() == HTTP_DELETE && uri.startsWith("/api/delete/")) {
+      String filename = uri.substring(12); // Remove "/api/delete/"
+      if (!filename.startsWith("/")) {
+        filename = "/" + filename;
+      }
+      
+      if (LittleFS.exists(filename)) {
+        LittleFS.remove(filename);
+        server.send(200, "text/plain", "Deleted");
+      } else {
+        server.send(404, "text/plain", "File not found");
+      }
+      return;
+    }
+    
+    // Handle file downloads (GET)
+    if (!handleFileRead(uri)) {
       server.send(404, "text/plain", "404: Not Found");
+    }
   });
 
   server.begin();

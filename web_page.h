@@ -592,7 +592,10 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="card">
             <div class="collapsible-header" onclick="toggleSection('logs')">
                 <div class="metric-label">Session History</div>
-                <div class="metric-label" style="cursor:pointer; color:var(--accent)" onclick="event.stopPropagation(); fetchLogs()">REFRESH</div>
+                <div style="display:flex; gap:15px;">
+                    <div class="metric-label" style="cursor:pointer; color:#FF453A" onclick="event.stopPropagation(); deleteAllLogs()">DELETE ALL</div>
+                    <div class="metric-label" style="cursor:pointer; color:var(--accent)" onclick="event.stopPropagation(); fetchLogs()">REFRESH</div>
+                </div>
             </div>
             <div id="logs-panel" class="collapsible-content">
                 <div id="log-list"></div>
@@ -966,7 +969,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                         <div style="font-size: 13px; font-weight: 600;">${log.name}</div>
                         <div style="font-size: 11px; color: var(--text-muted);">${(log.size / 1024).toFixed(1)} KB</div>
                     </div>
-                    <button class="btn btn-glass" style="padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); downloadLog('${log.name}')">Download</button>
+                    <div style="display:flex; gap:6px;">
+                        <button class="btn btn-glass" style="padding: 6px 12px; font-size: 11px; color:#FF453A;" onclick="event.stopPropagation(); deleteLog('${log.name}')">Delete</button>
+                        <button class="btn btn-glass" style="padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); downloadLog('${log.name}')">Download</button>
+                    </div>
                 </div>
             `).join('');
         }
@@ -1136,6 +1142,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 
                 if (res.ok) {
                     showToast('✓ File deleted successfully');
+                    await fetchLogs(); // Refresh the file list
                 } else {
                     showToast('✗ Failed to delete file');
                 }
@@ -1147,6 +1154,29 @@ const char index_html[] PROGMEM = R"rawliteral(
         
         function downloadLog(filename) {
             window.location.href = '/' + filename;
+        }
+        
+        async function deleteAllLogs() {
+            if (!confirm('Delete ALL session files?\n\nThis cannot be undone!')) {
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/logs');
+                const logs = await res.json();
+                
+                let deleted = 0;
+                for (const log of logs) {
+                    const delRes = await fetch('/api/delete/' + encodeURIComponent(log.name), { method: 'DELETE' });
+                    if (delRes.ok) deleted++;
+                }
+                
+                showToast(`✓ Deleted ${deleted} files`);
+                await fetchLogs();
+            } catch (err) {
+                console.error('Delete all error:', err);
+                showToast('✗ Error deleting files');
+            }
         }
         
         function showToast(msg) {

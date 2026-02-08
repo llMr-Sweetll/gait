@@ -147,6 +147,20 @@ Download and install the latest **Arduino IDE (2.0+)** from [arduino.cc](https:/
 5. **Upload**: Click the **Arrow Icon (→)** in the top left.
     - *Troubleshooting*: If "Connecting..." fails, hold the small **Side Button (BtnB)** on the device while plugging it in to force "Bootloader Mode".
 
+### Quick Reference: Arduino IDE Settings
+
+| Setting | Value |
+| :--- | :--- |
+| **Arduino IDE Version** | 2.0+ |
+| **Board Manager URL** | `https://espressif.github.io/arduino-esp32/package_esp32_index.json` |
+| **Board Package** | esp32 by Espressif Systems (v3.0.0+) |
+| **Board Selection** | M5Stick-C-Plus2 |
+| **Required Library** | M5Unified by M5Stack |
+| **Upload Speed** | 1500000 (Fast) or 115200 (Reliable) |
+
+> [!WARNING]
+> **Do NOT install**: `M5StickCPlus2` library - use only `M5Unified`
+
 ---
 
 ## 📖 User Manual: Device Interface
