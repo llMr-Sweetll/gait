@@ -780,62 +780,95 @@ public:
   void onBtnA() override; // Defined below classes
 };
 
-// 1.5 POWER MENU (PHASE 3.5)
+// 1.5 POWER MENU (PHASE 3.5: UI Redesigned)
 class PowerMenuApp : public App {
 private:
   int sel = 0;
-  const char *menuItems[5] = {"Battery Info", "Sleep Mode", "Restart",
-                              "Settings", "Cancel"};
+  struct MenuItem {
+    const char *label;
+    const char *icon;
+    uint16_t color;
+  };
+  MenuItem menuItems[6] = {
+      {"Battery Info", "[=]", UI_SUCCESS}, {"Sleep Mode", "zzZ", UI_ACCENT},
+      {"Power Off", "(X)", UI_DANGER},     {"Restart", "(!)", UI_WARNING},
+      {"Settings", "[*]", UI_MUTED},       {"Back", "<-", UI_TEXT}};
 
 public:
   void onDraw(M5Canvas &c) override {
-    c.fillScreen(BLACK);
-    c.setTextColor(WHITE);
-    c.setTextSize(2);
-    c.drawCenterString("Power Menu", 120, 10, 2);
+    c.fillScreen(UI_BG);
 
+    // Header
+    c.fillRect(0, 0, 240, 22, UI_HEADER);
+    c.drawLine(0, 22, 240, 22, UI_CARD);
+    c.setTextColor(UI_ACCENT);
     c.setTextSize(1);
-    for (int i = 0; i < 5; i++) {
-      int y = 40 + i * 17;
-      if (i == sel) {
-        c.fillRect(10, y - 2, 220, 15, DARKGREY);
-        c.setTextColor(CYAN);
-      } else {
-        c.setTextColor(WHITE);
+    c.drawCenterString("Power Menu", 120, 6, 2);
+
+    // Menu items
+    for (int i = 0; i < 6; i++) {
+      int y = 28 + i * 16;
+      bool selected = (i == sel);
+
+      if (selected) {
+        c.fillRoundRect(15, y - 2, 210, 15, 3, UI_CARD);
+        c.drawRoundRect(15, y - 2, 210, 15, 3, menuItems[i].color);
       }
-      c.drawString(menuItems[i], 20, y, 1);
+
+      // Icon
+      c.setTextColor(menuItems[i].color);
+      c.drawString(menuItems[i].icon, 22, y, 1);
+
+      // Label
+      c.setTextColor(selected ? UI_TEXT : UI_MUTED);
+      c.drawString(menuItems[i].label, 50, y, 1);
+
+      // Arrow for selected
+      if (selected) {
+        c.setTextColor(menuItems[i].color);
+        c.drawString(">", 210, y, 1);
+      }
     }
 
-    c.setTextColor(DARKGREY);
+    // Footer hint
+    c.setTextColor(UI_MUTED);
+    c.setTextSize(1);
     c.drawCenterString("A: Select  |  B: Next", 120, 125, 1);
   }
 
   void onBtnB() override {
-    sel = (sel + 1) % 5;
-    M5.Speaker.tone(1500, 50);
+    sel = (sel + 1) % 6;
+    playSound("click");
   }
 
   void onBtnA() override {
-    M5.Speaker.tone(2000, 100);
+    playSound("select");
     switch (sel) {
     case 0: // Battery Info
       showToast(String(batteryVoltage, 2) + "V / " + String(batteryPercent) +
-                    "%",
-                2000);
+                "%");
       break;
     case 1: // Sleep Mode
-      showToast("Sleeping...", 1000);
-      delay(1000);
+      showToast("Sleeping...");
+      delay(1500);
       M5.Power.powerOff();
       break;
-    case 2: // Restart
+    case 2: // Power Off
+      showToast("Shutting down...");
+      delay(1500);
+      M5.Power.powerOff();
+      break;
+    case 3: // Restart
+      showToast("Restarting...");
+      delay(1000);
       ESP.restart();
       break;
-    case 3: // Settings
-      showToast("Coming soon", 1500);
+    case 4: // Settings
+      showToast("Coming soon");
       break;
-    case 4: // Cancel
+    case 5: // Back
       currentApp = &launcher;
+      currentApp->onOpen();
       break;
     }
   }
@@ -2133,23 +2166,32 @@ void loop() {
 
   // App Input
 
-  // Power button long-press detection (2s hold for power menu)
+  // Power button long-press detection (2s hold for power menu from anywhere)
   if (M5.BtnPWR.isPressed() && !btnPwrLongPress) {
     if (btnPwrPressTime == 0) {
       btnPwrPressTime = millis();
     } else if (millis() - btnPwrPressTime > 2000) {
       currentApp = &powerMenu;
       btnPwrLongPress = true;
-      M5.Speaker.tone(1000, 100);
+      playSound("select");
       currentApp->onOpen();
     }
   }
 
   if (M5.BtnPWR.wasReleased()) {
-    // Short press: back to launcher
+    // Short press action
     if (!btnPwrLongPress && btnPwrPressTime > 0) {
-      currentApp = &launcher;
-      currentApp->onOpen();
+      if (currentApp == &launcher) {
+        // On home screen: open power menu
+        currentApp = &powerMenu;
+        playSound("select");
+        currentApp->onOpen();
+      } else {
+        // Elsewhere: go back to launcher
+        currentApp = &launcher;
+        playSound("click");
+        currentApp->onOpen();
+      }
     }
     btnPwrPressTime = 0;
     btnPwrLongPress = false;
