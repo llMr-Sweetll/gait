@@ -908,6 +908,10 @@ public:
       File file = root.openNextFile();
       while (file && fileCount < 20) {
         String name = String(file.name());
+        // Ensure path has leading slash for LittleFS.remove()
+        if (!name.startsWith("/")) {
+          name = "/" + name;
+        }
         if (name.endsWith(".csv")) {
           fileList[fileCount++] = name;
         }
@@ -974,10 +978,27 @@ public:
 
   void onBtnA() override {
     if (fileCount > 0) {
-      LittleFS.remove(fileList[sel]);
-      M5.Speaker.tone(2000, 200);
-      showToast("Deleted!", 1500);
-      onActivate();
+      String filename = fileList[sel];
+      Serial.println("Device delete: " + filename);
+
+      // Try with leading slash
+      bool deleted = LittleFS.remove(filename);
+
+      // If failed, try without leading slash
+      if (!deleted && filename.startsWith("/")) {
+        String altName = filename.substring(1);
+        Serial.println("Trying without slash: " + altName);
+        deleted = LittleFS.remove(altName);
+      }
+
+      if (deleted) {
+        M5.Speaker.tone(2000, 200);
+        showToast("Deleted!", 1500);
+      } else {
+        M5.Speaker.tone(500, 200);
+        showToast("Delete failed!", 1500);
+      }
+      onActivate(); // Refresh file list
     } else {
       currentApp = &launcher;
       M5.Speaker.tone(1500, 50);
@@ -1073,6 +1094,10 @@ void handleLogsList() {
     bool first = true;
     while (file) {
       String name = String(file.name());
+      // Ensure consistent format - always include leading slash
+      if (!name.startsWith("/")) {
+        name = "/" + name;
+      }
       if (name.endsWith(".csv")) {
         if (!first)
           output += ",";
@@ -1238,27 +1263,103 @@ void setup() {
   // NEW: Logs & Downloads
   server.on("/api/logs", HTTP_GET, handleLogsList);
 
+  // DELETE ALL FILES API - server-side reliable deletion
+  server.on("/api/deleteall", HTTP_POST, []() {
+    File root = LittleFS.open("/");
+    int deleted = 0;
+    if (root) {
+      File file = root.openNextFile();
+      while (file) {
+        String name = String(file.name());
+        if (!name.startsWith("/")) {
+          name = "/" + name;
+        }
+        file.close();               // Close before deleting
+        file = root.openNextFile(); // Get next before deleting current
+
+        if (name.endsWith(".csv")) {
+          Serial.println("Deleting: " + name);
+          if (LittleFS.remove(name)) {
+            deleted++;
+          } else {
+            // Try without leading slash
+            String altName = name.substring(1);
+            if (LittleFS.remove(altName)) {
+              deleted++;
+            }
+          }
+        }
+      }
+    }
+    showToast("Deleted " + String(deleted) + " files", 2000);
+    server.send(200, "text/plain", "Deleted " + String(deleted) + " files");
+  });
+
+  // FORMAT STORAGE API - completely wipe LittleFS
+  server.on("/api/format", HTTP_POST, []() {
+    Serial.println("Formatting LittleFS...");
+    LittleFS.end();
+    bool success = LittleFS.format();
+    LittleFS.begin(true);
+
+    if (success) {
+      showToast("Storage formatted!", 2000);
+      server.send(200, "text/plain", "Storage formatted successfully");
+    } else {
+      showToast("Format failed!", 2000);
+      server.send(500, "text/plain", "Format failed");
+    }
+  });
+
   // DELETE API moved to onNotFound handler to support dynamic paths
 
   server.onNotFound([]() {
     String uri = server.uri();
-    
-    // Handle DELETE requests for file management (PHASE 3.5 - FIXED)
+
+    // Handle DELETE requests for file management (PHASE 3.5 - FIXED V2)
     if (server.method() == HTTP_DELETE && uri.startsWith("/api/delete/")) {
       String filename = uri.substring(12); // Remove "/api/delete/"
+
+      // URL decode the filename (handles %20, etc.)
+      filename.replace("%20", " ");
+      filename.replace("%2F", "/");
+      filename.replace("%5C", "\\");
+
+      // Ensure filename starts with /
       if (!filename.startsWith("/")) {
         filename = "/" + filename;
       }
-      
+
+      // Debug output
+      Serial.println("DELETE Request - Filename: " + filename);
+
+      // Check if file exists
       if (LittleFS.exists(filename)) {
-        LittleFS.remove(filename);
-        server.send(200, "text/plain", "Deleted");
+        bool success = LittleFS.remove(filename);
+        Serial.println("Delete result: " + String(success ? "OK" : "FAIL"));
+        if (success) {
+          server.send(200, "text/plain", "Deleted: " + filename);
+        } else {
+          server.send(500, "text/plain", "Failed to delete");
+        }
       } else {
-        server.send(404, "text/plain", "File not found");
+        // Try without the leading slash (some LittleFS versions differ)
+        String altFilename = filename.substring(1);
+        Serial.println("File not found, trying: " + altFilename);
+        if (LittleFS.exists(altFilename)) {
+          bool success = LittleFS.remove(altFilename);
+          if (success) {
+            server.send(200, "text/plain", "Deleted: " + altFilename);
+          } else {
+            server.send(500, "text/plain", "Failed to delete");
+          }
+        } else {
+          server.send(404, "text/plain", "File not found: " + filename);
+        }
       }
       return;
     }
-    
+
     // Handle file downloads (GET)
     if (!handleFileRead(uri)) {
       server.send(404, "text/plain", "404: Not Found");

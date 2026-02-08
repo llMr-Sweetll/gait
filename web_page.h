@@ -593,6 +593,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="collapsible-header" onclick="toggleSection('logs')">
                 <div class="metric-label">Session History</div>
                 <div style="display:flex; gap:15px;">
+                    <div class="metric-label" style="cursor:pointer; color:#FF9500" onclick="event.stopPropagation(); formatStorage()">FORMAT</div>
                     <div class="metric-label" style="cursor:pointer; color:#FF453A" onclick="event.stopPropagation(); deleteAllLogs()">DELETE ALL</div>
                     <div class="metric-label" style="cursor:pointer; color:var(--accent)" onclick="event.stopPropagation(); fetchLogs()">REFRESH</div>
                 </div>
@@ -1136,7 +1137,9 @@ const char index_html[] PROGMEM = R"rawliteral(
             }
             
             try {
-                const res = await fetch('/api/delete/' + encodeURIComponent(filename), {
+                // Strip leading slash if present to avoid encoding issues
+                let cleanName = filename.startsWith('/') ? filename.substring(1) : filename;
+                const res = await fetch('/api/delete/' + encodeURIComponent(cleanName), {
                     method: 'DELETE'
                 });
                 
@@ -1144,7 +1147,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                     showToast('✓ File deleted successfully');
                     await fetchLogs(); // Refresh the file list
                 } else {
-                    showToast('✗ Failed to delete file');
+                    const errText = await res.text();
+                    showToast('✗ ' + errText);
                 }
             } catch (err) {
                 console.error('Delete error:', err);
@@ -1162,20 +1166,41 @@ const char index_html[] PROGMEM = R"rawliteral(
             }
             
             try {
-                const res = await fetch('/api/logs');
-                const logs = await res.json();
+                showToast('⏳ Deleting all files...');
+                const res = await fetch('/api/deleteall', { method: 'POST' });
+                const text = await res.text();
                 
-                let deleted = 0;
-                for (const log of logs) {
-                    const delRes = await fetch('/api/delete/' + encodeURIComponent(log.name), { method: 'DELETE' });
-                    if (delRes.ok) deleted++;
+                if (res.ok) {
+                    showToast('✓ ' + text);
+                } else {
+                    showToast('✗ ' + text);
                 }
-                
-                showToast(`✓ Deleted ${deleted} files`);
                 await fetchLogs();
             } catch (err) {
                 console.error('Delete all error:', err);
                 showToast('✗ Error deleting files');
+            }
+        }
+        
+        async function formatStorage() {
+            if (!confirm('FORMAT STORAGE?\n\nThis will PERMANENTLY delete ALL files including non-CSV files!\n\nContinue?')) {
+                return;
+            }
+            
+            try {
+                showToast('⏳ Formatting storage...');
+                const res = await fetch('/api/format', { method: 'POST' });
+                const text = await res.text();
+                
+                if (res.ok) {
+                    showToast('✓ ' + text);
+                } else {
+                    showToast('✗ ' + text);
+                }
+                await fetchLogs();
+            } catch (err) {
+                console.error('Format error:', err);
+                showToast('✗ Error formatting storage');
             }
         }
         
