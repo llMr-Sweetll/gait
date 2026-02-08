@@ -116,6 +116,142 @@ void showToast(String msg, int durationMs = 1500) {
 }
 
 // =============================================================================
+// UI POLISH: Color Palette & Helpers
+// =============================================================================
+// Enhanced color palette
+#define UI_BG 0x0000      // Black background
+#define UI_CARD 0x1082    // Dark gray for cards
+#define UI_ACCENT 0x04FF  // Cyan accent
+#define UI_SUCCESS 0x07E0 // Green
+#define UI_WARNING 0xFD20 // Orange
+#define UI_DANGER 0xF800  // Red
+#define UI_TEXT 0xFFFF    // White
+#define UI_MUTED 0x7BEF   // Gray text
+#define UI_HEADER 0x1863  // Dark blue header
+
+// Draw status bar at top of screen (call at start of each onDraw)
+void drawStatusBar(M5Canvas &c) {
+  // Background gradient effect (dark blue)
+  c.fillRect(0, 0, 240, 18, UI_HEADER);
+  c.drawLine(0, 18, 240, 18, UI_CARD);
+
+  c.setTextSize(1);
+
+  // Battery icon + percentage (left)
+  int batX = 5;
+  // Battery outline
+  c.drawRect(batX, 4, 18, 10, UI_MUTED);
+  c.fillRect(batX + 18, 6, 2, 6, UI_MUTED);
+  // Battery fill (color based on level)
+  uint16_t batColor = batteryPercent > 50
+                          ? UI_SUCCESS
+                          : (batteryPercent > 20 ? UI_WARNING : UI_DANGER);
+  int fillWidth = map(batteryPercent, 0, 100, 0, 16);
+  c.fillRect(batX + 1, 5, fillWidth, 8, batColor);
+  // Percentage text
+  c.setTextColor(UI_TEXT);
+  c.setCursor(batX + 24, 5);
+  c.printf("%d%%", batteryPercent);
+
+  // Calibration status (center)
+  if (isCalibrated) {
+    c.setTextColor(UI_SUCCESS);
+    c.drawCenterString("CAL", 120, 5, 1);
+  } else {
+    c.setTextColor(UI_DANGER);
+    c.drawCenterString("NO CAL", 120, 5, 1);
+  }
+
+  // Recording indicator (right) - pulsing effect
+  if (isRecording) {
+    // Pulse the recording dot
+    int pulse = (millis() / 300) % 2;
+    if (pulse) {
+      c.fillCircle(225, 9, 6, UI_DANGER);
+    } else {
+      c.fillCircle(225, 9, 4, UI_DANGER);
+    }
+    c.setTextColor(UI_DANGER);
+    c.setCursor(200, 5);
+    c.print("REC");
+  } else {
+    // WiFi indicator when not recording
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(210, 5);
+    c.print("WiFi");
+  }
+}
+
+// Sound effects helper
+void playSound(const char *type) {
+  if (strcmp(type, "click") == 0) {
+    M5.Speaker.tone(1500, 30);
+  } else if (strcmp(type, "select") == 0) {
+    M5.Speaker.tone(2000, 80);
+  } else if (strcmp(type, "success") == 0) {
+    M5.Speaker.tone(2200, 100);
+    delay(50);
+    M5.Speaker.tone(2600, 100);
+  } else if (strcmp(type, "error") == 0) {
+    M5.Speaker.tone(400, 200);
+  } else if (strcmp(type, "recstart") == 0) {
+    M5.Speaker.tone(1800, 100);
+    delay(80);
+    M5.Speaker.tone(2200, 100);
+  } else if (strcmp(type, "recstop") == 0) {
+    M5.Speaker.tone(2200, 100);
+    delay(80);
+    M5.Speaker.tone(1800, 150);
+  }
+}
+
+// Draw splash screen
+void showSplashScreen() {
+  canvas.fillScreen(UI_BG);
+
+  // Title box with accent border
+  int boxW = 160, boxH = 60;
+  int boxX = (240 - boxW) / 2, boxY = 30;
+
+  // Outer glow effect
+  canvas.drawRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, UI_ACCENT);
+  canvas.fillRect(boxX, boxY, boxW, boxH, UI_CARD);
+
+  // Title
+  canvas.setTextColor(UI_ACCENT);
+  canvas.setTextSize(2);
+  canvas.drawCenterString("GAIT", 120, boxY + 8, 1);
+  canvas.setTextColor(UI_TEXT);
+  canvas.drawCenterString("OS", 120, boxY + 28, 1);
+
+  // Version
+  canvas.setTextSize(1);
+  canvas.setTextColor(UI_MUTED);
+  canvas.drawCenterString("V2.0", 120, boxY + 48, 1);
+
+  // Progress bar background
+  int barX = 40, barY = 110, barW = 160, barH = 8;
+  canvas.drawRect(barX - 1, barY - 1, barW + 2, barH + 2, UI_MUTED);
+
+  canvas.pushSprite(0, 0);
+
+  // Animate progress bar
+  for (int i = 0; i <= barW; i += 4) {
+    canvas.fillRect(barX, barY, i, barH, UI_ACCENT);
+    canvas.pushSprite(0, 0);
+    delay(15);
+    esp_task_wdt_reset(); // Keep watchdog happy
+  }
+
+  // Final flash
+  canvas.setTextColor(UI_SUCCESS);
+  canvas.drawCenterString("Ready!", 120, 125, 1);
+  canvas.pushSprite(0, 0);
+  playSound("success");
+  delay(500);
+}
+
+// =============================================================================
 // ADAPTIVE ZUPT DETECTOR
 // =============================================================================
 class ZUPTDetector {
@@ -584,20 +720,12 @@ class LauncherApp : public App {
 
 public:
   void onDraw(M5Canvas &c) override {
-    c.fillScreen(BLACK);
+    c.fillScreen(UI_BG);
 
-    // Header bar
-    c.fillRect(0, 0, 240, 22, 0x1863);
-    c.setTextColor(WHITE);
-    c.setTextSize(1);
-    c.drawString("GaitOS V2.0", 10, 7, 1);
+    // Status bar at top
+    drawStatusBar(c);
 
-    // Battery icon
-    drawBatteryIcon(c, 185, 7, batteryPercent);
-    c.setCursor(210, 7);
-    c.printf("%d%%", batteryPercent);
-
-    // App grid (4 apps in 2x2 layout)
+    // App grid (4 apps in 2x2 layout) - starting below status bar
     const char *names[4] = {"Lab", "Scope", "Net", "Files"};
     const char *desc[4] = {"Gait", "View", "WiFi", "Data"};
 
@@ -605,38 +733,38 @@ public:
       int col = i % 2;
       int row = i / 2;
       int x = 30 + col * 120;
-      int y = 40 + row * 42;
+      int y = 38 + row * 42; // Adjusted for status bar
 
       bool selected = (sel == i);
 
-      // Card background
+      // Card background with enhanced colors
       if (selected) {
-        c.fillRoundRect(x - 25, y - 3, 100, 36, 6, 0x2965);
-        c.drawRoundRect(x - 25, y - 3, 100, 36, 6, CYAN);
+        c.fillRoundRect(x - 25, y - 3, 100, 36, 6, UI_CARD);
+        c.drawRoundRect(x - 25, y - 3, 100, 36, 6, UI_ACCENT);
       } else {
-        c.fillRoundRect(x - 25, y - 3, 100, 36, 6, 0x18C3);
+        c.fillRoundRect(x - 25, y - 3, 100, 36, 6, 0x1082);
       }
 
       // App name
-      c.setTextColor(selected ? CYAN : WHITE);
+      c.setTextColor(selected ? UI_ACCENT : UI_TEXT);
       c.setTextSize(2);
       c.drawCenterString(names[i], x, y + 2, 1);
 
       // Description
-      c.setTextColor(LIGHTGREY);
+      c.setTextColor(UI_MUTED);
       c.setTextSize(1);
       c.drawCenterString(desc[i], x, y + 18, 1);
     }
 
     // Footer hint
-    c.setTextColor(DARKGREY);
+    c.setTextColor(UI_MUTED);
     c.setTextSize(1);
     c.drawCenterString("A: Open  |  B: Next", 120, 125, 1);
   }
 
   void onBtnB() override {
     sel = (sel + 1) % 4;
-    M5.Speaker.tone(1500, 50);
+    playSound("click");
   }
 
   void onBtnA() override; // Defined below classes
@@ -709,44 +837,84 @@ PowerMenuApp powerMenu;
 class GaitLabApp : public App {
 public:
   void onDraw(M5Canvas &c) override {
-    c.fillScreen(BLACK);
-    c.setTextColor(WHITE);
+    c.fillScreen(UI_BG);
 
-    // Battery
+    // Status bar at top
+    drawStatusBar(c);
+
+    // Main content starts below status bar (y=22)
+    int y = 24;
+
+    // Large step counter
+    c.setTextColor(UI_TEXT);
+    c.setTextSize(3);
+    c.setCursor(10, y);
+    c.printf("%.0f", stepCount);
     c.setTextSize(1);
-    c.setCursor(10, 5);
-    c.printf("Bat: %d%%", batteryPercent);
+    c.setTextColor(UI_MUTED);
+    c.setCursor(90, y + 10);
+    c.print("steps");
 
-    // Calibration status
-    c.setCursor(150, 5);
-    if (isCalibrated) {
-      c.setTextColor(GREEN);
-      c.print("CAL OK");
-    } else {
-      c.setTextColor(RED);
-      c.print("NO CAL");
-    }
+    y += 35;
 
-    c.setTextColor(WHITE);
-    c.setTextSize(2);
-    c.setCursor(10, 25);
-    c.printf("Steps: %.0f", stepCount);
-    c.setCursor(10, 50);
-    c.printf("Cad: %.0f", currentCadence);
+    // Metrics cards
     c.setTextSize(1);
-    c.setCursor(10, 75);
-    c.printf("Dist: %.1fm", distanceTotal);
-    c.setCursor(10, 90);
-    c.printf("Stability: %.0f%%", stabilityIndex);
-    c.setCursor(10, 105);
-    c.printf("Height: %.2fm", pos.z);
 
-    if (isRecording)
-      c.fillCircle(220, 20, 8, RED);
+    // Cadence
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Cadence");
+    c.setTextColor(UI_TEXT);
+    c.setCursor(120, y);
+    c.printf("%.0f spm", currentCadence);
+
+    y += 15;
+
+    // Distance
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Distance");
+    c.setTextColor(UI_TEXT);
+    c.setCursor(120, y);
+    c.printf("%.1f m", distanceTotal);
+
+    y += 15;
+
+    // Stability with color-coded bar
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Stability");
+    // Draw stability bar
+    int barX = 100, barW = 80, barH = 8;
+    c.drawRect(barX, y, barW + 2, barH + 2, UI_MUTED);
+    int fillW = (int)(barW * stabilityIndex / 100.0);
+    uint16_t stabColor = stabilityIndex > 70
+                             ? UI_SUCCESS
+                             : (stabilityIndex > 40 ? UI_WARNING : UI_DANGER);
+    c.fillRect(barX + 1, y + 1, fillW, barH, stabColor);
+    c.setTextColor(UI_TEXT);
+    c.setCursor(190, y);
+    c.printf("%.0f%%", stabilityIndex);
+
+    y += 15;
+
+    // Clearance height
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Height");
+    c.setTextColor(UI_TEXT);
+    c.setCursor(120, y);
+    c.printf("%.2f m", pos.z);
+
+    // Footer hint
+    c.setTextColor(UI_MUTED);
+    c.drawCenterString("A: Record  |  B: Back", 120, 125, 1);
   }
+
   void onBtnA() override {
     isRecording = !isRecording;
     if (isRecording) {
+      playSound("recstart");
       // Enhanced CSV header with metadata
       logFile = LittleFS.open("/log_" + String(millis()) + ".csv", FILE_WRITE);
       logFile.println("# GaitOS V2.0 - Ankle Mounted");
@@ -767,18 +935,18 @@ public:
       logFile.println("#");
       logFile.println("t,ax,ay,az,gx,gy,gz,q0,q1,q2,q3,roll,pitch,yaw,vx,vy,vz,"
                       "px,py,pz,phase,cadence,stability");
-      showToast("Rec Start");
+      showToast("Recording...");
     } else {
+      playSound("recstop");
       if (logFile)
         logFile.close();
-      showToast("Rec Stop");
+      showToast("Saved!");
     }
   }
 
   void onBtnB() override {
-    // Back to launcher
     currentApp = &launcher;
-    M5.Speaker.tone(1500, 50);
+    playSound("click");
   }
 };
 
@@ -922,18 +1090,20 @@ public:
   }
 
   void onDraw(M5Canvas &c) override {
-    c.fillScreen(BLACK);
+    c.fillScreen(UI_BG);
 
-    c.fillRect(0, 0, 240, 20, 0x1863);
-    c.setTextColor(WHITE);
+    // Header
+    c.fillRect(0, 0, 240, 18, UI_HEADER);
+    c.drawLine(0, 18, 240, 18, UI_CARD);
+    c.setTextColor(UI_TEXT);
     c.setTextSize(1);
-    c.drawString("< Back (B)", 5, 6, 1);
-    c.drawCenterString("Files (" + String(fileCount) + ")", 120, 6, 1);
+    c.drawString("< Back", 5, 5, 1);
+    c.drawCenterString("Files (" + String(fileCount) + ")", 120, 5, 1);
 
     if (fileCount == 0) {
-      c.setTextColor(DARKGREY);
-      c.drawCenterString("No CSV files", 120, 60, 1);
-      c.drawCenterString("Record a session first", 120, 75, 1);
+      c.setTextColor(UI_MUTED);
+      c.drawCenterString("No CSV files", 120, 55, 1);
+      c.drawCenterString("Record a session first", 120, 70, 1);
     } else {
       int startIdx = max(0, sel - 2);
       for (int i = 0; i < min(5, fileCount); i++) {
@@ -941,38 +1111,46 @@ public:
         if (idx >= fileCount)
           break;
 
-        int y = 25 + i * 20;
+        int y = 22 + i * 20;
         if (idx == sel) {
-          c.fillRect(5, y, 230, 18, DARKGREY);
-          c.setTextColor(CYAN);
+          c.fillRect(5, y, 230, 18, UI_CARD);
+          c.setTextColor(UI_ACCENT);
+          c.drawString(">", 8, y + 3, 1);
         } else {
-          c.setTextColor(WHITE);
+          c.setTextColor(UI_TEXT);
         }
         c.setTextSize(1);
 
         String displayName = fileList[idx];
-        if (displayName.length() > 30) {
-          displayName = displayName.substring(0, 27) + "...";
+        if (displayName.length() > 25) {
+          displayName = displayName.substring(0, 22) + "...";
         }
-        c.drawString(displayName, 10, y + 3, 1);
+        c.drawString(displayName, 20, y + 3, 1);
+      }
+
+      // Scroll indicator
+      if (fileCount > 5) {
+        int indicatorY = 22 + (90 * sel / fileCount);
+        c.fillRect(232, 22, 3, 100, UI_CARD);
+        c.fillRect(232, indicatorY, 3, 20, UI_ACCENT);
       }
     }
 
-    c.setTextColor(DARKGREY);
+    c.setTextColor(UI_MUTED);
     c.setTextSize(1);
-    c.drawString("A: Delete  |  B: Next/Back", 10, 125, 1);
+    c.drawCenterString("A: Delete  |  B: Next/Back", 120, 125, 1);
   }
 
   void onBtnB() override {
     if (fileCount == 0) {
       currentApp = &launcher;
-      M5.Speaker.tone(1500, 50);
+      playSound("click");
     } else if (sel < fileCount - 1) {
       sel++;
-      M5.Speaker.tone(1500, 50);
+      playSound("click");
     } else {
       sel = 0;
-      M5.Speaker.tone(1500, 50);
+      playSound("click");
     }
   }
 
@@ -992,16 +1170,16 @@ public:
       }
 
       if (deleted) {
-        M5.Speaker.tone(2000, 200);
+        playSound("success");
         showToast("Deleted!", 1500);
       } else {
-        M5.Speaker.tone(500, 200);
+        playSound("error");
         showToast("Delete failed!", 1500);
       }
       onActivate(); // Refresh file list
     } else {
       currentApp = &launcher;
-      M5.Speaker.tone(1500, 50);
+      playSound("click");
     }
   }
 };
@@ -1171,6 +1349,10 @@ void setup() {
   // PHASE 3.5: Power button long-press handled in loop() (no API needed)
 
   canvas.createSprite(M5.Display.width(), M5.Display.height());
+
+  // Show splash screen during initialization
+  showSplashScreen();
+
   LittleFS.begin(true);
 
   // Initialize Madgwick filter
