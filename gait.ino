@@ -88,6 +88,7 @@ unsigned long stillStartTime = 0;
 bool isStill = false;
 bool isCalibrated = false;
 float gyroBiasX = 0, gyroBiasY = 0, gyroBiasZ = 0;
+float accBiasX = 0, accBiasY = 0, accBiasZ = 0;
 
 // Battery
 float batteryVoltage = 0;
@@ -107,12 +108,12 @@ bool isRecording = false;
 File logFile;
 unsigned long lastSampleTime = 0;
 
-// Toast
+// Toast - minimum 2.5 seconds for readability
 String toastMsg = "";
 unsigned long toastEndTime = 0;
-void showToast(String msg, int durationMs = 1500) {
+void showToast(String msg, int durationMs = 2500) {
   toastMsg = msg;
-  toastEndTime = millis() + durationMs;
+  toastEndTime = millis() + max(2000, durationMs); // At least 2 seconds
 }
 
 // =============================================================================
@@ -137,48 +138,56 @@ void drawStatusBar(M5Canvas &c) {
 
   c.setTextSize(1);
 
-  // Battery icon + percentage (left)
+  // === LEFT: Battery with charging indicator ===
   int batX = 5;
+  bool isCharging = M5.Power.isCharging();
+
   // Battery outline
   c.drawRect(batX, 4, 18, 10, UI_MUTED);
   c.fillRect(batX + 18, 6, 2, 6, UI_MUTED);
+
   // Battery fill (color based on level)
   uint16_t batColor = batteryPercent > 50
                           ? UI_SUCCESS
                           : (batteryPercent > 20 ? UI_WARNING : UI_DANGER);
   int fillWidth = map(batteryPercent, 0, 100, 0, 16);
   c.fillRect(batX + 1, 5, fillWidth, 8, batColor);
+
+  // Charging bolt icon overlay
+  if (isCharging) {
+    c.setTextColor(UI_BG);
+    c.drawCenterString("+", batX + 9, 4, 1);
+  }
+
   // Percentage text
   c.setTextColor(UI_TEXT);
   c.setCursor(batX + 24, 5);
   c.printf("%d%%", batteryPercent);
 
-  // Calibration status (center)
-  if (isCalibrated) {
-    c.setTextColor(UI_SUCCESS);
-    c.drawCenterString("CAL", 120, 5, 1);
-  } else {
+  // === CENTER: Calibration/Recording status ===
+  if (isRecording) {
+    // Pulsing REC indicator
+    int pulse = (millis() / 300) % 2;
+    c.fillCircle(105, 9, pulse ? 5 : 4, UI_DANGER);
     c.setTextColor(UI_DANGER);
-    c.drawCenterString("NO CAL", 120, 5, 1);
+    c.setCursor(113, 5);
+    c.print("REC");
+  } else if (isCalibrated) {
+    c.setTextColor(UI_SUCCESS);
+    c.drawCenterString("Ready", 120, 5, 1);
+  } else {
+    c.setTextColor(UI_WARNING);
+    c.drawCenterString("Setup", 120, 5, 1);
   }
 
-  // Recording indicator (right) - pulsing effect
-  if (isRecording) {
-    // Pulse the recording dot
-    int pulse = (millis() / 300) % 2;
-    if (pulse) {
-      c.fillCircle(225, 9, 6, UI_DANGER);
-    } else {
-      c.fillCircle(225, 9, 4, UI_DANGER);
-    }
-    c.setTextColor(UI_DANGER);
-    c.setCursor(200, 5);
-    c.print("REC");
+  // === RIGHT: WiFi with client count ===
+  int clientCount = WiFi.softAPgetStationNum();
+  if (clientCount > 0) {
+    c.setTextColor(UI_SUCCESS);
+    c.drawRightString(String(clientCount) + " conn", 235, 5, 1);
   } else {
-    // WiFi indicator when not recording
-    c.setTextColor(UI_ACCENT);
-    c.setCursor(210, 5);
-    c.print("WiFi");
+    c.setTextColor(UI_MUTED);
+    c.drawRightString("WiFi On", 235, 5, 1);
   }
 }
 
@@ -205,13 +214,13 @@ void playSound(const char *type) {
   }
 }
 
-// Draw splash screen
+// Draw splash screen with welcome message
 void showSplashScreen() {
   canvas.fillScreen(UI_BG);
 
   // Title box with accent border
-  int boxW = 160, boxH = 60;
-  int boxX = (240 - boxW) / 2, boxY = 30;
+  int boxW = 180, boxH = 70;
+  int boxX = (240 - boxW) / 2, boxY = 20;
 
   // Outer glow effect
   canvas.drawRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, UI_ACCENT);
@@ -220,17 +229,17 @@ void showSplashScreen() {
   // Title
   canvas.setTextColor(UI_ACCENT);
   canvas.setTextSize(2);
-  canvas.drawCenterString("GAIT", 120, boxY + 8, 1);
+  canvas.drawCenterString("GAIT", 120, boxY + 10, 1);
   canvas.setTextColor(UI_TEXT);
-  canvas.drawCenterString("OS", 120, boxY + 28, 1);
+  canvas.drawCenterString("OS", 120, boxY + 30, 1);
 
   // Version
   canvas.setTextSize(1);
   canvas.setTextColor(UI_MUTED);
-  canvas.drawCenterString("V2.0", 120, boxY + 48, 1);
+  canvas.drawCenterString("V2.0 - Gait Analysis", 120, boxY + 52, 1);
 
   // Progress bar background
-  int barX = 40, barY = 110, barW = 160, barH = 8;
+  int barX = 40, barY = 105, barW = 160, barH = 8;
   canvas.drawRect(barX - 1, barY - 1, barW + 2, barH + 2, UI_MUTED);
 
   canvas.pushSprite(0, 0);
@@ -239,13 +248,14 @@ void showSplashScreen() {
   for (int i = 0; i <= barW; i += 4) {
     canvas.fillRect(barX, barY, i, barH, UI_ACCENT);
     canvas.pushSprite(0, 0);
-    delay(15);
+    delay(12);
     esp_task_wdt_reset(); // Keep watchdog happy
   }
 
-  // Final flash
+  // Welcome message
+  canvas.setTextSize(1);
   canvas.setTextColor(UI_SUCCESS);
-  canvas.drawCenterString("Ready!", 120, 125, 1);
+  canvas.drawCenterString("Welcome!", 120, 120, 1);
   canvas.pushSprite(0, 0);
   playSound("success");
   delay(500);
@@ -714,7 +724,7 @@ class LauncherApp;
 extern LauncherApp launcher;
 extern App *currentApp;
 
-// 1. LAUNCHER (PHASE 3.5: Redesigned)
+// 1. LAUNCHER (PHASE 3.5: Redesigned - Now 6 apps)
 class LauncherApp : public App {
   int sel = 0;
 
@@ -725,35 +735,35 @@ public:
     // Status bar at top
     drawStatusBar(c);
 
-    // App grid (4 apps in 2x2 layout) - starting below status bar
-    const char *names[4] = {"Lab", "Scope", "Net", "Files"};
-    const char *desc[4] = {"Gait", "View", "WiFi", "Data"};
+    // App grid (6 apps in 3x2 layout) - starting below status bar
+    const char *names[6] = {"Lab", "Scope", "Net", "Files", "Batt", "Cal"};
+    const char *desc[6] = {"Gait", "View", "WiFi", "Data", "Power", "Setup"};
 
-    for (int i = 0; i < 4; i++) {
-      int col = i % 2;
-      int row = i / 2;
-      int x = 30 + col * 120;
-      int y = 38 + row * 42; // Adjusted for status bar
+    for (int i = 0; i < 6; i++) {
+      int col = i % 3;
+      int row = i / 3;
+      int x = 40 + col * 80;
+      int y = 38 + row * 45; // Adjusted for status bar
 
       bool selected = (sel == i);
 
       // Card background with enhanced colors
       if (selected) {
-        c.fillRoundRect(x - 25, y - 3, 100, 36, 6, UI_CARD);
-        c.drawRoundRect(x - 25, y - 3, 100, 36, 6, UI_ACCENT);
+        c.fillRoundRect(x - 28, y - 3, 58, 40, 5, UI_CARD);
+        c.drawRoundRect(x - 28, y - 3, 58, 40, 5, UI_ACCENT);
       } else {
-        c.fillRoundRect(x - 25, y - 3, 100, 36, 6, 0x1082);
+        c.fillRoundRect(x - 28, y - 3, 58, 40, 5, 0x1082);
       }
 
       // App name
       c.setTextColor(selected ? UI_ACCENT : UI_TEXT);
-      c.setTextSize(2);
-      c.drawCenterString(names[i], x, y + 2, 1);
+      c.setTextSize(1);
+      c.drawCenterString(names[i], x, y + 5, 2);
 
       // Description
       c.setTextColor(UI_MUTED);
       c.setTextSize(1);
-      c.drawCenterString(desc[i], x, y + 18, 1);
+      c.drawCenterString(desc[i], x, y + 24, 1);
     }
 
     // Footer hint
@@ -763,7 +773,7 @@ public:
   }
 
   void onBtnB() override {
-    sel = (sel + 1) % 4;
+    sel = (sel + 1) % 6;
     playSound("click");
   }
 
@@ -950,114 +960,331 @@ public:
   }
 };
 
-// 3. SCOPE (PHASE 3.5: Fixed rendering)
+// 3. SCOPE (Enhanced with multiple modes)
 class ScopeApp : public App {
+private:
+  int mode = 0; // 0=Trajectory, 1=Angles, 2=Accel, 3=Steps
+  const char *modeNames[4] = {"Trajectory", "Angles", "Accel", "Steps"};
+
+  // History buffers for visualization
+  float angleHistory[60][3]; // roll, pitch, yaw
+  float accelHistory[60][3]; // x, y, z
+  int historyIdx = 0;
+
 public:
+  void onActivate() {
+    // Clear history
+    memset(angleHistory, 0, sizeof(angleHistory));
+    memset(accelHistory, 0, sizeof(accelHistory));
+    historyIdx = 0;
+  }
+
+  void updateHistory() {
+    // Store current values
+    angleHistory[historyIdx][0] = roll;
+    angleHistory[historyIdx][1] = pitch;
+    angleHistory[historyIdx][2] = yaw;
+    accelHistory[historyIdx][0] = accX;
+    accelHistory[historyIdx][1] = accY;
+    accelHistory[historyIdx][2] = accZ;
+    historyIdx = (historyIdx + 1) % 60;
+  }
+
   void onDraw(M5Canvas &c) override {
-    c.fillScreen(BLACK);
+    c.fillScreen(UI_BG);
+    updateHistory();
 
-    // Header
-    c.fillRect(0, 0, 240, 20, 0x1863);
-    c.setTextColor(WHITE);
+    // Header with mode tabs
+    c.fillRect(0, 0, 240, 18, UI_HEADER);
+    c.drawLine(0, 18, 240, 18, UI_CARD);
     c.setTextSize(1);
-    c.drawString("< Back (B)", 5, 6, 1);
-    c.drawCenterString("Trajectory", 120, 6, 1);
 
-    if (trajCount < 2) {
-      c.setTextColor(DARKGREY);
-      c.drawCenterString("No trajectory data", 120, 60, 1);
-      c.drawCenterString("Walk to record path", 120, 75, 1);
-      return;
-    }
+    // Mode indicator
+    c.setTextColor(UI_MUTED);
+    c.drawString("< Back", 5, 5, 1);
+    c.setTextColor(UI_ACCENT);
+    c.drawCenterString(modeNames[mode], 120, 5, 1);
+    c.setTextColor(UI_MUTED);
+    c.drawRightString("A: Mode", 235, 5, 1);
 
-    // Auto-scale trajectory
-    float minX = 9999, maxX = -9999, minZ = 9999, maxZ = -9999;
-    for (int i = 0; i < trajCount; i++) {
-      int idx = (trajHead - trajCount + i + TRAJECTORY_LEN) % TRAJECTORY_LEN;
-      float x = trajectory[idx].x / 100.0f;
-      float z = trajectory[idx].y / 100.0f;
+    int plotX = 10, plotY = 22, plotW = 220, plotH = 85;
 
-      if (x < minX)
-        minX = x;
-      if (x > maxX)
-        maxX = x;
-      if (z < minZ)
-        minZ = z;
-      if (z > maxZ)
-        maxZ = z;
-    }
+    if (mode == 0) {
+      // TRAJECTORY MODE
+      if (trajCount < 2) {
+        c.setTextColor(UI_MUTED);
+        c.drawCenterString("No trajectory data", 120, 55, 1);
+        c.drawCenterString("Walk to record path", 120, 70, 1);
+      } else {
+        // Auto-scale
+        float minX = 9999, maxX = -9999, minZ = 9999, maxZ = -9999;
+        for (int i = 0; i < trajCount; i++) {
+          int idx =
+              (trajHead - trajCount + i + TRAJECTORY_LEN) % TRAJECTORY_LEN;
+          float x = trajectory[idx].x / 100.0f;
+          float z = trajectory[idx].y / 100.0f;
+          if (x < minX)
+            minX = x;
+          if (x > maxX)
+            maxX = x;
+          if (z < minZ)
+            minZ = z;
+          if (z > maxZ)
+            maxZ = z;
+        }
+        float rangeX = max(0.1f, maxX - minX);
+        float rangeZ = max(0.1f, maxZ - minZ);
+        minX -= rangeX * 0.1f;
+        maxX += rangeX * 0.1f;
+        minZ -= rangeZ * 0.1f;
+        maxZ += rangeZ * 0.1f;
 
-    // Add margins
-    float rangeX = maxX - minX;
-    float rangeZ = maxZ - minZ;
-    if (rangeX < 0.1f)
-      rangeX = 0.1f;
-    if (rangeZ < 0.1f)
-      rangeZ = 0.1f;
-    minX -= rangeX * 0.1f;
-    maxX += rangeX * 0.1f;
-    minZ -= rangeZ * 0.1f;
-    maxZ += rangeZ * 0.1f;
+        c.drawRect(plotX, plotY, plotW, plotH, UI_MUTED);
 
-    // Plot area
-    int plotX = 10, plotY = 25, plotW = 220, plotH = 85;
+        // Plot trajectory
+        for (int i = 0; i < trajCount - 1; i++) {
+          int idx =
+              (trajHead - trajCount + i + TRAJECTORY_LEN) % TRAJECTORY_LEN;
+          float x1 = trajectory[idx].x / 100.0f;
+          float z1 = trajectory[idx].y / 100.0f;
+          float x2 = trajectory[(idx + 1) % TRAJECTORY_LEN].x / 100.0f;
+          float z2 = trajectory[(idx + 1) % TRAJECTORY_LEN].y / 100.0f;
 
-    // Draw axes
-    c.drawRect(plotX, plotY, plotW, plotH, WHITE);
+          int sx1 = plotX + (x1 - minX) / (maxX - minX) * plotW;
+          int sy1 = plotY + plotH - (z1 - minZ) / (maxZ - minZ) * plotH;
+          int sx2 = plotX + (x2 - minX) / (maxX - minX) * plotW;
+          int sy2 = plotY + plotH - (z2 - minZ) / (maxZ - minZ) * plotH;
 
-    // Grid lines
-    c.setTextColor(0x39C7);
-    for (int i = 1; i < 4; i++) {
-      int x = plotX + (plotW * i / 4);
-      c.drawLine(x, plotY, x, plotY + plotH, 0x39C7);
-    }
-    for (int i = 1; i < 3; i++) {
-      int y = plotY + (plotH * i / 3);
-      c.drawLine(plotX, y, plotX + plotW, y, 0x39C7);
-    }
+          c.drawLine(sx1, sy1, sx2, sy2, UI_ACCENT);
+        }
 
-    // Plot trajectory
-    for (int i = 0; i < trajCount - 1; i++) {
-      int idx = (trajHead - trajCount + i + TRAJECTORY_LEN) % TRAJECTORY_LEN;
-      float x1 = trajectory[idx].x / 100.0f;
-      float z1 = trajectory[idx].y / 100.0f;
-      float x2 = trajectory[(idx + 1) % TRAJECTORY_LEN].x / 100.0f;
-      float z2 = trajectory[(idx + 1) % TRAJECTORY_LEN].y / 100.0f;
-
-      int sx1 = plotX + (x1 - minX) / (maxX - minX) * plotW;
-      int sy1 = plotY + plotH - (z1 - minZ) / (maxZ - minZ) * plotH;
-      int sx2 = plotX + (x2 - minX) / (maxX - minX) * plotW;
-      int sy2 = plotY + plotH - (z2 - minZ) / (maxZ - minZ) * plotH;
-
-      if (sx1 >= plotX && sx1 < plotX + plotW && sx2 >= plotX &&
-          sx2 < plotX + plotW && sy1 >= plotY && sy1 < plotY + plotH &&
-          sy2 >= plotY && sy2 < plotY + plotH) {
-        c.drawLine(sx1, sy1, sx2, sy2, CYAN);
+        c.setTextColor(UI_TEXT);
+        c.drawString("Pts: " + String(trajCount), plotX, 112, 1);
+        c.drawRightString("Range: " + String(rangeX, 1) + "m", plotX + plotW,
+                          112, 1);
       }
+
+    } else if (mode == 1) {
+      // ANGLES MODE - Roll, Pitch, Yaw
+      c.drawRect(plotX, plotY, plotW, plotH, UI_MUTED);
+
+      // Draw zero line
+      int zeroY = plotY + plotH / 2;
+      c.drawLine(plotX, zeroY, plotX + plotW, zeroY, UI_CARD);
+
+      // Plot angle history
+      for (int i = 1; i < 60; i++) {
+        int idx1 = (historyIdx - 60 + i - 1 + 60) % 60;
+        int idx2 = (historyIdx - 60 + i + 60) % 60;
+        int x1 = plotX + (i - 1) * plotW / 60;
+        int x2 = plotX + i * plotW / 60;
+
+        // Roll (red)
+        int y1 = zeroY - (int)(angleHistory[idx1][0] * plotH / 180);
+        int y2 = zeroY - (int)(angleHistory[idx2][0] * plotH / 180);
+        c.drawLine(x1, constrain(y1, plotY, plotY + plotH), x2,
+                   constrain(y2, plotY, plotY + plotH), UI_DANGER);
+
+        // Pitch (green)
+        y1 = zeroY - (int)(angleHistory[idx1][1] * plotH / 180);
+        y2 = zeroY - (int)(angleHistory[idx2][1] * plotH / 180);
+        c.drawLine(x1, constrain(y1, plotY, plotY + plotH), x2,
+                   constrain(y2, plotY, plotY + plotH), UI_SUCCESS);
+
+        // Yaw (cyan)
+        y1 = zeroY - (int)(angleHistory[idx1][2] * plotH / 360);
+        y2 = zeroY - (int)(angleHistory[idx2][2] * plotH / 360);
+        c.drawLine(x1, constrain(y1, plotY, plotY + plotH), x2,
+                   constrain(y2, plotY, plotY + plotH), UI_ACCENT);
+      }
+
+      // Legend
+      c.setTextColor(UI_DANGER);
+      c.drawString("R:" + String(roll, 0), plotX, 112, 1);
+      c.setTextColor(UI_SUCCESS);
+      c.drawString("P:" + String(pitch, 0), plotX + 60, 112, 1);
+      c.setTextColor(UI_ACCENT);
+      c.drawString("Y:" + String(yaw, 0), plotX + 120, 112, 1);
+
+    } else if (mode == 2) {
+      // ACCELEROMETER MODE
+      c.drawRect(plotX, plotY, plotW, plotH, UI_MUTED);
+
+      // Draw 1g line
+      int zeroY = plotY + plotH / 2;
+      c.drawLine(plotX, zeroY, plotX + plotW, zeroY, UI_CARD);
+
+      // Plot accel history
+      for (int i = 1; i < 60; i++) {
+        int idx1 = (historyIdx - 60 + i - 1 + 60) % 60;
+        int idx2 = (historyIdx - 60 + i + 60) % 60;
+        int x1 = plotX + (i - 1) * plotW / 60;
+        int x2 = plotX + i * plotW / 60;
+
+        // X (red)
+        int y1 = zeroY - (int)(accelHistory[idx1][0] * plotH / 4);
+        int y2 = zeroY - (int)(accelHistory[idx2][0] * plotH / 4);
+        c.drawLine(x1, constrain(y1, plotY, plotY + plotH), x2,
+                   constrain(y2, plotY, plotY + plotH), UI_DANGER);
+
+        // Y (green)
+        y1 = zeroY - (int)(accelHistory[idx1][1] * plotH / 4);
+        y2 = zeroY - (int)(accelHistory[idx2][1] * plotH / 4);
+        c.drawLine(x1, constrain(y1, plotY, plotY + plotH), x2,
+                   constrain(y2, plotY, plotY + plotH), UI_SUCCESS);
+
+        // Z (cyan)
+        y1 = zeroY - (int)(accelHistory[idx1][2] * plotH / 4);
+        y2 = zeroY - (int)(accelHistory[idx2][2] * plotH / 4);
+        c.drawLine(x1, constrain(y1, plotY, plotY + plotH), x2,
+                   constrain(y2, plotY, plotY + plotH), UI_ACCENT);
+      }
+
+      // Legend
+      c.setTextColor(UI_DANGER);
+      c.drawString("X:" + String(accX, 1) + "g", plotX, 112, 1);
+      c.setTextColor(UI_SUCCESS);
+      c.drawString("Y:" + String(accY, 1) + "g", plotX + 70, 112, 1);
+      c.setTextColor(UI_ACCENT);
+      c.drawString("Z:" + String(accZ, 1) + "g", plotX + 140, 112, 1);
+
+    } else if (mode == 3) {
+      // STEP COUNTER MODE - Large display
+      c.setTextColor(UI_TEXT);
+      c.setTextSize(4);
+      c.drawCenterString(String((int)stepCount), 120, 35, 1);
+      c.setTextSize(1);
+      c.setTextColor(UI_MUTED);
+      c.drawCenterString("steps", 120, 70, 1);
+
+      // Additional metrics
+      c.setTextColor(UI_ACCENT);
+      c.drawString("Cadence", 20, 85, 1);
+      c.setTextColor(UI_TEXT);
+      c.drawString(String(currentCadence, 0) + " spm", 20, 98, 1);
+
+      c.setTextColor(UI_ACCENT);
+      c.drawString("Distance", 120, 85, 1);
+      c.setTextColor(UI_TEXT);
+      c.drawString(String(distanceTotal, 1) + " m", 120, 98, 1);
+
+      // Stability bar
+      c.setTextColor(UI_ACCENT);
+      c.drawString("Stability", 20, 112, 1);
+      int barX = 80, barW = 100;
+      c.drawRect(barX, 112, barW, 8, UI_MUTED);
+      int fillW = (int)(barW * stabilityIndex / 100);
+      uint16_t col = stabilityIndex > 70
+                         ? UI_SUCCESS
+                         : (stabilityIndex > 40 ? UI_WARNING : UI_DANGER);
+      c.fillRect(barX + 1, 113, fillW, 6, col);
+      c.setTextColor(UI_TEXT);
+      c.drawString(String(stabilityIndex, 0) + "%", 185, 112, 1);
     }
 
-    // Stats
-    c.setTextColor(WHITE);
-    c.setTextSize(1);
-    c.drawString("Points: " + String(trajCount), plotX, 115, 1);
-    c.drawRightString("Range: " + String(maxX - minX, 2) + "m", plotX + plotW,
-                      115, 1);
+    // Footer
+    c.setTextColor(UI_MUTED);
+    c.drawCenterString("A: Mode  |  B: Back", 120, 125, 1);
+  }
+
+  void onBtnA() override {
+    mode = (mode + 1) % 4;
+    playSound("click");
   }
 
   void onBtnB() override {
     currentApp = &launcher;
-    M5.Speaker.tone(1500, 50);
+    playSound("click");
   }
 };
 
-// 4. NET
+// 4. NET - Enhanced WiFi Info
 class NetApp : public App {
 public:
   void onDraw(M5Canvas &c) override {
-    c.fillScreen(BLACK);
-    c.setTextColor(WHITE);
-    c.drawCenterString(WiFi.softAPIP().toString(), 120, 60, 2);
-    c.drawCenterString("SSID: GAIT-LOGGER", 120, 90, 1);
+    c.fillScreen(UI_BG);
+
+    // Header
+    c.fillRect(0, 0, 240, 18, UI_HEADER);
+    c.drawLine(0, 18, 240, 18, UI_CARD);
+    c.setTextColor(UI_TEXT);
+    c.setTextSize(1);
+    c.drawString("< Back", 5, 5, 1);
+    c.drawCenterString("Network Info", 120, 5, 1);
+
+    int y = 24;
+
+    // SSID
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("SSID");
+    c.setTextColor(UI_TEXT);
+    c.setCursor(80, y);
+    c.print(WIFI_SSID);
+    y += 14;
+
+    // Password
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Password");
+    c.setTextColor(UI_TEXT);
+    c.setCursor(80, y);
+    c.print(WIFI_PASS);
+    y += 14;
+
+    // Divider
+    c.drawLine(10, y, 230, y, UI_CARD);
+    y += 6;
+
+    // Web Server URL
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Dashboard");
+    c.setTextColor(UI_SUCCESS);
+    c.setCursor(80, y);
+    c.print("http://");
+    c.print(WiFi.softAPIP().toString());
+    y += 14;
+
+    // Connected Clients
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Clients");
+    int clientCount = WiFi.softAPgetStationNum();
+    c.setTextColor(clientCount > 0 ? UI_SUCCESS : UI_MUTED);
+    c.setCursor(80, y);
+    c.printf("%d connected", clientCount);
+    y += 14;
+
+    // Divider
+    c.drawLine(10, y, 230, y, UI_CARD);
+    y += 6;
+
+    // Status
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Status");
+    c.setTextColor(UI_SUCCESS);
+    c.setCursor(80, y);
+    c.print("AP Active");
+    y += 14;
+
+    // Recording status
+    c.setTextColor(UI_ACCENT);
+    c.setCursor(10, y);
+    c.print("Recording");
+    c.setTextColor(isRecording ? UI_DANGER : UI_MUTED);
+    c.setCursor(80, y);
+    c.print(isRecording ? "IN PROGRESS" : "Idle");
+
+    // Footer
+    c.setTextColor(UI_MUTED);
+    c.drawCenterString("B: Back to Menu", 120, 125, 1);
+  }
+
+  void onBtnB() override {
+    currentApp = &launcher;
+    playSound("click");
   }
 };
 
@@ -1184,21 +1411,265 @@ public:
   }
 };
 
+// 6. BATTERY APP - Detailed battery info
+class BatteryApp : public App {
+private:
+  unsigned long lastUpdate = 0;
+  float voltage = 0;
+  bool isCharging = false;
+
+public:
+  void updateBatteryInfo() {
+    if (millis() - lastUpdate > 500) {
+      voltage = M5.Power.getBatteryVoltage() / 1000.0f;
+      isCharging = M5.Power.isCharging();
+      lastUpdate = millis();
+    }
+  }
+
+  void onDraw(M5Canvas &c) override {
+    c.fillScreen(UI_BG);
+    updateBatteryInfo();
+
+    // Header
+    c.fillRect(0, 0, 240, 18, UI_HEADER);
+    c.drawLine(0, 18, 240, 18, UI_CARD);
+    c.setTextColor(UI_TEXT);
+    c.setTextSize(1);
+    c.drawString("< Back", 5, 5, 1);
+    c.drawCenterString("Battery Info", 120, 5, 1);
+
+    int y = 26;
+
+    // Large battery percentage
+    c.setTextSize(4);
+    c.setTextColor(batteryPercent > 20 ? UI_SUCCESS : UI_DANGER);
+    c.drawCenterString(String(batteryPercent) + "%", 120, y, 1);
+    y += 40;
+
+    // Charging status
+    c.setTextSize(1);
+    if (isCharging) {
+      c.setTextColor(UI_SUCCESS);
+      c.drawCenterString("CHARGING", 120, y, 1);
+    } else {
+      c.setTextColor(UI_MUTED);
+      c.drawCenterString("Discharging", 120, y, 1);
+    }
+    y += 16;
+
+    // Divider
+    c.drawLine(20, y, 220, y, UI_CARD);
+    y += 8;
+
+    // Voltage
+    c.setTextColor(UI_ACCENT);
+    c.drawString("Voltage", 20, y, 1);
+    c.setTextColor(UI_TEXT);
+    c.drawRightString(String(voltage, 2) + " V", 220, y, 1);
+    y += 14;
+
+    // Health estimate
+    c.setTextColor(UI_ACCENT);
+    c.drawString("Health", 20, y, 1);
+    String health = "Good";
+    uint16_t healthColor = UI_SUCCESS;
+    if (voltage < 3.3 && !isCharging) {
+      health = "Low";
+      healthColor = UI_DANGER;
+    } else if (voltage < 3.6 && !isCharging) {
+      health = "Fair";
+      healthColor = UI_WARNING;
+    }
+    c.setTextColor(healthColor);
+    c.drawRightString(health, 220, y, 1);
+    y += 14;
+
+    // Status
+    c.setTextColor(UI_ACCENT);
+    c.drawString("Status", 20, y, 1);
+    c.setTextColor(UI_TEXT);
+    c.drawRightString(isCharging ? "Plugged In" : "On Battery", 220, y, 1);
+
+    // Footer
+    c.setTextColor(UI_MUTED);
+    c.drawCenterString("B: Back to Menu", 120, 125, 1);
+  }
+
+  void onBtnB() override {
+    currentApp = &launcher;
+    playSound("click");
+  }
+};
+
+// 7. CALIBRATION APP - Manual sensor calibration
+class CalibrationApp : public App {
+private:
+  int state = 0; // 0=ready, 1=calibrating, 2=done
+  int progress = 0;
+  unsigned long calStart = 0;
+  float calAccX = 0, calAccY = 0, calAccZ = 0;
+  float calGyrX = 0, calGyrY = 0, calGyrZ = 0;
+  int samples = 0;
+
+public:
+  void onActivate() {
+    state = 0;
+    progress = 0;
+  }
+
+  void runCalibration() {
+    if (state == 1) {
+      unsigned long elapsed = millis() - calStart;
+      progress = min(100, (int)(elapsed / 30)); // 3 seconds calibration
+
+      // Accumulate samples
+      calAccX += accX;
+      calAccY += accY;
+      calAccZ += (accZ - 1.0f); // Subtract gravity
+      calGyrX += gyroX;
+      calGyrY += gyroY;
+      calGyrZ += gyroZ;
+      samples++;
+
+      if (elapsed >= 3000) {
+        // Apply calibration offsets
+        if (samples > 0) {
+          gyroBiasX = calGyrX / samples;
+          gyroBiasY = calGyrY / samples;
+          gyroBiasZ = calGyrZ / samples;
+          accBiasX = calAccX / samples;
+          accBiasY = calAccY / samples;
+          accBiasZ = calAccZ / samples;
+        }
+        isCalibrated = true;
+        state = 2;
+        playSound("success");
+      }
+    }
+  }
+
+  void onDraw(M5Canvas &c) override {
+    c.fillScreen(UI_BG);
+    runCalibration();
+
+    // Header
+    c.fillRect(0, 0, 240, 18, UI_HEADER);
+    c.drawLine(0, 18, 240, 18, UI_CARD);
+    c.setTextColor(UI_TEXT);
+    c.setTextSize(1);
+    c.drawString("< Back", 5, 5, 1);
+    c.drawCenterString("Calibration", 120, 5, 1);
+
+    if (state == 0) {
+      // Ready state
+      c.setTextColor(UI_TEXT);
+      c.setTextSize(2);
+      c.drawCenterString("Ready", 120, 30, 1);
+
+      c.setTextSize(1);
+      c.setTextColor(UI_MUTED);
+      c.drawCenterString("Place device flat on", 120, 55, 1);
+      c.drawCenterString("stable surface", 120, 68, 1);
+      c.drawCenterString("Keep still during calibration", 120, 85, 1);
+
+      c.setTextColor(UI_SUCCESS);
+      c.drawCenterString("Press A to start", 120, 105, 1);
+
+    } else if (state == 1) {
+      // Calibrating
+      c.setTextColor(UI_WARNING);
+      c.setTextSize(2);
+      c.drawCenterString("Calibrating...", 120, 35, 1);
+
+      // Progress bar
+      c.setTextSize(1);
+      int barX = 30, barY = 60, barW = 180, barH = 16;
+      c.drawRect(barX, barY, barW, barH, UI_MUTED);
+      c.fillRect(barX + 2, barY + 2, (barW - 4) * progress / 100, barH - 4,
+                 UI_ACCENT);
+
+      c.setTextColor(UI_TEXT);
+      c.drawCenterString(String(progress) + "%", 120, 82, 1);
+
+      c.setTextColor(UI_DANGER);
+      c.drawCenterString("KEEP STILL!", 120, 100, 1);
+
+    } else {
+      // Done
+      c.setTextColor(UI_SUCCESS);
+      c.setTextSize(2);
+      c.drawCenterString("Done!", 120, 30, 1);
+
+      c.setTextSize(1);
+      c.setTextColor(UI_MUTED);
+      c.drawCenterString("Calibration successful", 120, 55, 1);
+
+      // Show offsets
+      c.setTextColor(UI_ACCENT);
+      c.drawString("Gyro bias", 20, 75, 1);
+      c.setTextColor(UI_TEXT);
+      c.drawRightString(String(gyroBiasX, 2) + "," + String(gyroBiasY, 2) +
+                            "," + String(gyroBiasZ, 2),
+                        220, 75, 1);
+
+      c.setTextColor(UI_ACCENT);
+      c.drawString("Accel bias", 20, 90, 1);
+      c.setTextColor(UI_TEXT);
+      c.drawRightString(String(accBiasX, 3) + "," + String(accBiasY, 3) + "," +
+                            String(accBiasZ, 3),
+                        220, 90, 1);
+
+      c.setTextColor(UI_SUCCESS);
+      c.drawCenterString("A: Recalibrate | B: Done", 120, 110, 1);
+    }
+
+    // Footer (only in ready state)
+    if (state == 0) {
+      c.setTextColor(UI_MUTED);
+      c.drawCenterString("B: Cancel", 120, 125, 1);
+    }
+  }
+
+  void onBtnA() override {
+    if (state == 0 || state == 2) {
+      // Start calibration
+      state = 1;
+      progress = 0;
+      calStart = millis();
+      calAccX = calAccY = calAccZ = 0;
+      calGyrX = calGyrY = calGyrZ = 0;
+      samples = 0;
+      playSound("recstart");
+    }
+  }
+
+  void onBtnB() override {
+    if (state != 1) { // Can't cancel during calibration
+      currentApp = &launcher;
+      playSound("click");
+    }
+  }
+};
+
 LauncherApp launcher;
 GaitLabApp gaitLab;
 ScopeApp scope;
 NetApp netApp;
 FilesApp filesApp;
+BatteryApp batteryApp;
+CalibrationApp calibrationApp;
 
 App *currentApp = &launcher;
 
 void LauncherApp::onBtnA() {
-  M5.Speaker.tone(2000, 100);
+  playSound("select");
   switch (sel) {
   case 0:
     currentApp = &gaitLab;
     break;
   case 1:
+    scope.onActivate();
     currentApp = &scope;
     break;
   case 2:
@@ -1207,6 +1678,13 @@ void LauncherApp::onBtnA() {
   case 3:
     filesApp.onActivate();
     currentApp = &filesApp;
+    break;
+  case 4:
+    currentApp = &batteryApp;
+    break;
+  case 5:
+    calibrationApp.onActivate();
+    currentApp = &calibrationApp;
     break;
   }
   currentApp->onOpen();
@@ -1378,7 +1856,7 @@ void setup() {
   // Tuning API
   server.on("/api/config", HTTP_POST, handleConfig);
 
-  // Calibration API
+  // Calibration API - POST resets, GET returns status
   server.on("/api/calibrate", HTTP_POST, []() {
     pos = {0, 0, 0};
     vel = {0, 0, 0};
@@ -1390,7 +1868,30 @@ void setup() {
     isCalibrated = true;
     madgwick.reset();
     showToast("Zeroed!", 1000);
-    server.send(200);
+    String json = "{\"success\":true,\"calibrated\":true,\"gyroBias\":[";
+    json += String(gyroBiasX, 4) + "," + String(gyroBiasY, 4) + "," +
+            String(gyroBiasZ, 4);
+    json += "],\"accBias\":[";
+    json += String(accBiasX, 4) + "," + String(accBiasY, 4) + "," +
+            String(accBiasZ, 4);
+    json += "]}";
+    server.send(200, "application/json", json);
+  });
+
+  server.on("/api/calibration", HTTP_GET, []() {
+    String json = "{\"calibrated\":";
+    json += isCalibrated ? "true" : "false";
+    json += ",\"gyroBias\":[";
+    json += String(gyroBiasX, 4) + "," + String(gyroBiasY, 4) + "," +
+            String(gyroBiasZ, 4);
+    json += "],\"accBias\":[";
+    json += String(accBiasX, 4) + "," + String(accBiasY, 4) + "," +
+            String(accBiasZ, 4);
+    json += "],\"battery\":{\"percent\":" + String(batteryPercent);
+    json += ",\"voltage\":" + String(M5.Power.getBatteryVoltage() / 1000.0f, 2);
+    json += ",\"charging\":" + String(M5.Power.isCharging() ? "true" : "false");
+    json += "}}";
+    server.send(200, "application/json", json);
   });
 
   // Recording API with session metadata support
