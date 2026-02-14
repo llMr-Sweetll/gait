@@ -983,9 +983,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             fetchLogs();
         }
 
-        function downloadLog(name) {
-            window.open('/' + name, '_blank');
-        }
+        // downloadLog is defined below with proper fetch+blob handling
 
         // Export functions
         function exportCSV() {
@@ -1002,7 +1000,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                 return;
             }
             
-            const response = await fetch('/' + selectedLog);
+            const path = selectedLog.startsWith('/') ? selectedLog : '/' + selectedLog;
+            const response = await fetch(path);
             const csvText = await response.text();
             
             const lines = csvText.split('\n').filter(l => l && !l.startsWith('#'));
@@ -1036,7 +1035,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                 return;
             }
             
-            const response = await fetch('/' + selectedLog);
+            const path2 = selectedLog.startsWith('/') ? selectedLog : '/' + selectedLog;
+            const response = await fetch(path2);
             const csvText = await response.text();
             const stats = calculateSessionStats(csvText);
             
@@ -1156,8 +1156,28 @@ const char index_html[] PROGMEM = R"rawliteral(
             }
         }
         
-        function downloadLog(filename) {
-            window.location.href = '/' + filename;
+        async function downloadLog(filename) {
+            try {
+                showToast('⏳ Downloading...');
+                // Normalize path - avoid double slashes
+                const path = filename.startsWith('/') ? filename : '/' + filename;
+                const res = await fetch(path);
+                if (!res.ok) throw new Error('Download failed');
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                // Use clean filename without leading slash
+                a.download = filename.startsWith('/') ? filename.substring(1) : filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('✓ Downloaded: ' + a.download);
+            } catch (err) {
+                console.error('Download error:', err);
+                showToast('✗ Download failed');
+            }
         }
         
         async function deleteAllLogs() {

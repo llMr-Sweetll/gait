@@ -1803,9 +1803,29 @@ void handleLogsList() {
 
 // --- FILE DOWNLOAD ---
 bool handleFileRead(String path) {
+  // Normalize path - ensure it starts with /
+  if (!path.startsWith("/")) {
+    path = "/" + path;
+  }
+
+  // URL decode common characters
+  path.replace("%20", " ");
+
   if (LittleFS.exists(path)) {
     File file = LittleFS.open(path, "r");
-    server.streamFile(file, "text/csv");
+
+    // Extract just the filename for Content-Disposition
+    String filename = path;
+    int lastSlash = filename.lastIndexOf('/');
+    if (lastSlash >= 0) {
+      filename = filename.substring(lastSlash + 1);
+    }
+
+    // Force browser to download instead of displaying inline
+    server.sendHeader("Content-Disposition",
+                      "attachment; filename=\"" + filename + "\"");
+    server.sendHeader("Content-Length", String(file.size()));
+    server.streamFile(file, "application/octet-stream");
     file.close();
     return true;
   }
