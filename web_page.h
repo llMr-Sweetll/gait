@@ -37,7 +37,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             color: var(--text);
             margin: 0;
             padding: 20px;
-            padding-bottom: 100px;
+            padding-bottom: 80px; /* matches action-bar height (~56px) + 20px gap */
             -webkit-font-smoothing: antialiased;
         }
 
@@ -127,8 +127,27 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         .metric-info {
             cursor: help;
-            opacity: 0.5;
+            opacity: 0.8;
             font-size: 14px;
+            position: relative;
+        }
+
+        .metric-info:hover::after {
+            content: attr(title);
+            position: absolute;
+            right: 0;
+            top: 22px;
+            background: #333;
+            color: var(--text);
+            font-size: 11px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            white-space: nowrap;
+            z-index: 50;
+            border: 1px solid var(--card-border);
+            max-width: 220px;
+            white-space: normal;
+            line-height: 1.4;
         }
 
         .metric-value-container {
@@ -272,7 +291,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             top: 90px;
             left: 20px;
             right: 20px;
-            background: linear-gradient(135deg, #FF453A, #FF6B5E);
+            background: linear-gradient(135deg, var(--danger), #FF6B5E);
             border-radius: 12px;
             padding: 16px;
             box-shadow: 0 4px 16px rgba(255, 69, 58, 0.5);
@@ -518,7 +537,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 <div class="unit">m</div>
             </div>
             <div class="card" style="padding:12px; text-align:center;">
-                <div class="metric-label">Phase</div>
+                <div class="metric-label">Gait Phase</div>
                 <div style="font-size:16px; font-weight:700; margin:12px 0;" id="val-phase">STANCE</div>
             </div>
         </div>
@@ -551,12 +570,12 @@ const char index_html[] PROGMEM = R"rawliteral(
             </div>
             <div id="tuning-panel" class="collapsible-content" style="display:none;">
                 <div class="form-group">
-                    <label>Min Step Duration (ms)</label>
-                    <input type="number" id="cfg-step-time" value="280" step="10">
+                    <label>Min Step Duration (ms) — valid range: 150–600</label>
+                    <input type="number" id="cfg-step-time" value="280" step="10" min="150" max="600" placeholder="280">
                 </div>
                 <div class="form-group">
-                    <label>ZUPT Acceleration Threshold (g)</label>
-                    <input type="number" id="cfg-zupt-acc" value="0.25" step="0.05">
+                    <label>ZUPT Acceleration Threshold (g) — fraction of gravity, 0.05–1.0</label>
+                    <input type="number" id="cfg-zupt-acc" value="0.25" step="0.05" min="0.05" max="1.0" placeholder="0.25">
                 </div>
                 <button class="btn btn-primary" onclick="saveConfig()" style="width:100%;">Apply Settings</button>
             </div>
@@ -592,37 +611,35 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="card">
             <div class="collapsible-header" onclick="toggleSection('logs')">
                 <div class="metric-label">Session History</div>
-                <div style="display:flex; gap:15px;">
-                    <div class="metric-label" style="cursor:pointer; color:#FF9500" onclick="event.stopPropagation(); formatStorage()">FORMAT</div>
-                    <div class="metric-label" style="cursor:pointer; color:#FF453A" onclick="event.stopPropagation(); deleteAllLogs()">DELETE ALL</div>
-                    <div class="metric-label" style="cursor:pointer; color:var(--accent)" onclick="event.stopPropagation(); fetchLogs()">REFRESH</div>
+                <div style="display:flex; gap:8px;" onclick="event.stopPropagation()">
+                    <button class="btn btn-glass" style="padding:4px 10px; font-size:11px; color:var(--warning); border-color:var(--warning);" onclick="formatStorage()">Format</button>
+                    <button class="btn btn-danger"  style="padding:4px 10px; font-size:11px;" onclick="deleteAllLogs()">Delete All</button>
+                    <button class="btn btn-glass"   style="padding:4px 10px; font-size:11px;" onclick="fetchLogs()">Refresh</button>
                 </div>
             </div>
             <div id="logs-panel" class="collapsible-content">
                 <div id="log-list"></div>
             </div>
-        </div>
-    </div>
-    
-    <!-- PHASE 4: Session Comparison -->
-    <div class="card">
-        <div class="metric-label" style="margin-bottom: 15px;">Session Comparison</div>
-        <div style="display:flex; gap:10px; margin-bottom:15px;">
-            <select id="compareSession1" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--card-bg); color:var(--text);">
-                <option value="">Select Session 1...</option>
-            </select>
-            <select id="compareSession2" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--card-bg); color:var(--text);">
-                <option value="">Select Session 2...</option>
-            </select>
-        </div>
-        <button class="btn btn-primary" onclick="compareSessions()" style="width:100%; margin-bottom:15px;">
-            Compare Trajectories
-        </button>
-        <div id="comparisonResults" style="display:none;">
-            <div class="chart-wrapper" style="height:250px; margin-bottom:15px;">
-                <canvas id="comparisonChart"></canvas>
+        <!-- PHASE 4: Session Comparison (inside container for max-width constraint) -->
+        <div class="card">
+            <div class="metric-label" style="margin-bottom: 15px;">Session Comparison</div>
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <select id="compareSession1" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text); font-family:var(--font);">
+                    <option value="">Select Session 1...</option>
+                </select>
+                <select id="compareSession2" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text); font-family:var(--font);">
+                    <option value="">Select Session 2...</option>
+                </select>
             </div>
-            <div id="comparisonStats"></div>
+            <button class="btn btn-primary" onclick="compareSessions()" style="width:100%; margin-bottom:15px;">
+                Compare Trajectories
+            </button>
+            <div id="comparisonResults" style="display:none;">
+                <div class="chart-wrapper" style="height:250px; margin-bottom:15px;">
+                    <canvas id="comparisonChart"></canvas>
+                </div>
+                <div id="comparisonStats"></div>
+            </div>
         </div>
     </div>
 
@@ -675,13 +692,39 @@ const char index_html[] PROGMEM = R"rawliteral(
         // Global state
         let recording = false;
         let selectedLog = null;
-        
-        // Metric history for statistics and trends
+        let recordingActionPending = false; // lock to prevent sync() overriding in-flight actions
+
+        // Metric history for statistics and trends (per session — reset on each recording)
         const metricHistory = {
             stability: [],
             cadence: [],
             clearance: []
         };
+
+        function resetSession() {
+            metricHistory.stability = [];
+            metricHistory.cadence = [];
+            metricHistory.clearance = [];
+            // Reset stat displays
+            ['stab', 'cad'].forEach(k => {
+                ['min','max','avg'].forEach(s => {
+                    const el = document.getElementById(s + '-' + k);
+                    if (el) el.innerText = '--';
+                });
+                const t = document.getElementById('trend-' + k);
+                if (t) t.innerText = '';
+            });
+            // Clear live charts
+            if (trajectoryChart) {
+                trajectoryChart.data.datasets[0].data = [];
+                trajectoryChart.update('none');
+            }
+            if (cadenceChart) {
+                cadenceChart.data.labels = [];
+                cadenceChart.data.datasets[0].data = [];
+                cadenceChart.update('none');
+            }
+        }
 
         // Chart.js instances
         let trajectoryChart, cadenceChart;
@@ -690,7 +733,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         window.onload = function() {
             initCharts();
             fetchLogs();
-            setInterval(sync, 100);
+            setInterval(sync, 500); // 500ms: fast enough for live display, won't flood device
         };
 
         function initCharts() {
@@ -810,13 +853,25 @@ const char index_html[] PROGMEM = R"rawliteral(
                 }
                 cadenceChart.update('none');
                 
-                // Update recording state
-                if (d.recording !== recording) {
+                // Sync recording state from device — skip if a local action is in-flight
+                // to prevent race where device hasn't processed our command yet
+                if (!recordingActionPending && d.recording !== recording) {
                     recording = d.recording;
                     updateRecordButton();
                 }
+
+                // Update connection badge (connected)
+                const badge = document.querySelector('.status-badge');
+                const dot   = document.querySelector('.live-dot');
+                document.getElementById('status-text').innerText = 'CONNECTED';
+                badge.style.background = 'rgba(50, 215, 75, 0.15)';
+                dot.style.background   = 'var(--success)';
             } catch (err) {
                 document.getElementById('status-text').innerText = 'DISCONNECTED';
+                const badge = document.querySelector('.status-badge');
+                const dot   = document.querySelector('.live-dot');
+                badge.style.background = 'rgba(255, 69, 58, 0.15)';
+                dot.style.background   = 'var(--danger)';
             }
         }
 
@@ -886,10 +941,13 @@ const char index_html[] PROGMEM = R"rawliteral(
             if (!recording) {
                 document.getElementById('sessionModal').style.display = 'flex';
             } else {
-                api('record/stop');
-                recording = false;
-                updateRecordButton();
-                fetchLogs();
+                recordingActionPending = true;
+                api('record/stop').then(() => {
+                    recording = false;
+                    recordingActionPending = false;
+                    updateRecordButton();
+                    fetchLogs();
+                });
             }
         }
 
@@ -899,25 +957,26 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         async function startSession(e) {
             e.preventDefault();
-            
+
             const metadata = {
                 name: document.getElementById('sessionName').value || generateSessionName(),
                 patientId: document.getElementById('patientId').value,
                 type: document.getElementById('sessionType').value,
                 notes: document.getElementById('sessionNotes').value
             };
-            
+
+            recordingActionPending = true;
             await fetch('/api/record/start', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(metadata)
             });
-            
+
             recording = true;
+            recordingActionPending = false;
             updateRecordButton();
             closeSessionModal();
-            
-            // Reset form
+            resetSession(); // clear charts and history for the new session
             document.getElementById('sessionForm').reset();
         }
 
@@ -943,39 +1002,48 @@ const char index_html[] PROGMEM = R"rawliteral(
                 step_time: parseFloat(document.getElementById('cfg-step-time').value),
                 zupt_acc: parseFloat(document.getElementById('cfg-zupt-acc').value)
             };
-            
-            await fetch('/api/config', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(config)
-            });
-            
-            alert('Settings saved!');
+
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(config)
+                });
+                if (res.ok) {
+                    showToast('✓ Settings applied to device');
+                } else {
+                    showToast('✗ Failed to apply settings');
+                }
+            } catch (err) {
+                showToast('✗ Device not reachable');
+            }
         }
 
         // Logs
         async function fetchLogs() {
             const res = await fetch('/api/logs');
             const logs = await res.json();
-            
+
             const listEl = document.getElementById('log-list');
             if (logs.length === 0) {
                 listEl.innerHTML = '<p style="color: var(--text-muted); font-size: 13px;">No recordings yet</p>';
-                return;
+            } else {
+                listEl.innerHTML = logs.map(log => `
+                    <div class="log-item${selectedLog === log.name ? ' selected' : ''}" onclick="selectLog('${log.name}')">
+                        <div>
+                            <div style="font-size: 13px; font-weight: 600;">${log.name}</div>
+                            <div style="font-size: 11px; color: var(--text-muted);">${(log.size / 1024).toFixed(1)} KB</div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn btn-danger" style="padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); deleteLog('${log.name}')">Delete</button>
+                            <button class="btn btn-glass" style="padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); downloadLog('${log.name}')">Download</button>
+                        </div>
+                    </div>
+                `).join('');
             }
-            
-            listEl.innerHTML = logs.map(log => `
-                <div class="log-item${selectedLog === log.name ? ' selected' : ''}" onclick="selectLog('${log.name}')">
-                    <div>
-                        <div style="font-size: 13px; font-weight: 600;">${log.name}</div>
-                        <div style="font-size: 11px; color: var(--text-muted);">${(log.size / 1024).toFixed(1)} KB</div>
-                    </div>
-                    <div style="display:flex; gap:6px;">
-                        <button class="btn btn-glass" style="padding: 6px 12px; font-size: 11px; color:#FF453A;" onclick="event.stopPropagation(); deleteLog('${log.name}')">Delete</button>
-                        <button class="btn btn-glass" style="padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); downloadLog('${log.name}')">Download</button>
-                    </div>
-                </div>
-            `).join('');
+
+            // Keep comparison selectors in sync with log list
+            populateSessionSelectors(logs);
         }
 
         function selectLog(name) {
@@ -1087,20 +1155,21 @@ const char index_html[] PROGMEM = R"rawliteral(
         function calculateSessionStats(csvText) {
             const lines = csvText.split('\n').filter(l => l && !l.startsWith('#'));
             if (lines.length < 2) return { duration: 0, totalSteps: 0, avgCadence: 0, avgStability: 0, totalDistance: 0 };
-            
+
             const data = lines.slice(1).map(l => l.split(','));
-            
-            // Extract columns (assuming V2.0 format: 23 columns)
-            const cadences = data.map(r => parseFloat(r[21])).filter(v => !isNaN(v) && v > 0);
-            const stabilities = data.map(r => parseFloat(r[22])).filter(v => !isNaN(v));
-            const positions = data.map(r => parseFloat(r[17])).filter(v => !isNaN(v));
-            
+
+            // Extract columns (V2.0 format: t,ax,ay,az,gx,gy,gz,q0,q1,q2,q3,roll,pitch,yaw,vx,vy,vz,px,py,pz,phase,cadence,stability,abnormal)
+            const cadences    = data.map(r => parseFloat(r[21])).filter(v => isFinite(v) && v > 0);
+            const stabilities = data.map(r => parseFloat(r[22])).filter(v => isFinite(v));
+            const positions   = data.map(r => parseFloat(r[17])).filter(v => isFinite(v));
+            const stepCounts  = data.map(r => parseFloat(r[20])).filter(v => isFinite(v));
+
             return {
-                duration: (data.length / 100).toFixed(1),
-                totalSteps: Math.round(Math.max(...data.map(r => parseFloat(r[20]) || 0), 0)),
-                avgCadence: cadences.length > 0 ? cadences.reduce((a,b) => a+b, 0) / cadences.length : 0,
-                avgStability: stabilities.length > 0 ? stabilities.reduce((a,b) => a+b, 0) / stabilities.length : 0,
-                totalDistance: Math.max(...positions, 0)
+                duration:      (data.length / 100).toFixed(1),
+                totalSteps:    stepCounts.length  > 0 ? Math.round(Math.max(...stepCounts))  : 0,
+                avgCadence:    cadences.length    > 0 ? cadences.reduce((a,b) => a+b, 0) / cadences.length : 0,
+                avgStability:  stabilities.length > 0 ? stabilities.reduce((a,b) => a+b, 0) / stabilities.length : 0,
+                totalDistance: positions.length   > 0 ? Math.max(...positions) : 0
             };
         }
 
@@ -1225,67 +1294,79 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
         
         function showToast(msg) {
+            // Pick color by message prefix
+            let bg = '#32D74B'; // success green
+            if (msg.startsWith('✗'))  bg = '#FF453A'; // error red
+            if (msg.startsWith('⏳')) bg = '#0A84FF'; // in-progress blue
+
             const toast = document.createElement('div');
             toast.innerText = msg;
             toast.style.cssText = `
                 position: fixed;
-                bottom: 100px;
+                bottom: 80px;
                 left: 50%;
                 transform: translateX(-50%);
-                background: #32D74B;
+                background: ${bg};
                 color: white;
                 padding: 12px 24px;
                 border-radius: 8px;
                 z-index: 9999;
                 font-weight: 600;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                max-width: 90vw;
+                text-align: center;
+                word-break: break-word;
             `;
             document.body.appendChild(toast);
-            
+
             setTimeout(() => {
                 toast.style.opacity = '0';
                 toast.style.transition = 'opacity 0.3s';
                 setTimeout(() => toast.remove(), 300);
-            }, 2000);
+            }, 2500);
         }
         
         // PHASE 4: Session Comparison Functions
-        function populateSessionSelectors() {
-            fetch('/api/logs')
-                .then(r => r.json())
-                .then(logs => {
-                    const opts1 = document.getElementById('compareSession1');
-                    const opts2 = document.getElementById('compareSession2');
-                    
-                    opts1.innerHTML = '<option value="">Select Session 1...</option>';
-                    opts2.innerHTML = '<option value="">Select Session 2...</option>';
-                    
-                    logs.forEach(log => {
-                        opts1.innerHTML += `<option value="${log}">${log}</option>`;
-                        opts2.innerHTML += `<option value="${log}">${log}</option>`;
-                    });
-                });
+        // Called with the already-fetched logs array from fetchLogs()
+        function populateSessionSelectors(logs) {
+            const opts1 = document.getElementById('compareSession1');
+            const opts2 = document.getElementById('compareSession2');
+
+            opts1.innerHTML = '<option value="">Select Session 1...</option>';
+            opts2.innerHTML = '<option value="">Select Session 2...</option>';
+
+            logs.forEach(log => {
+                const name = log.name; // log is {name, size} — use .name not the object itself
+                opts1.innerHTML += `<option value="${name}">${name}</option>`;
+                opts2.innerHTML += `<option value="${name}">${name}</option>`;
+            });
         }
         
         async function loadCSV(filename) {
-            const response = await fetch('/' + filename);
+            // Normalize path — avoid double-slash if filename already starts with /
+            const path = filename.startsWith('/') ? filename : '/' + filename;
+            const response = await fetch(path);
+            if (!response.ok) throw new Error(`Failed to load ${filename}: ${response.status}`);
             const csvText = await response.text();
-            
-            const lines = csvText.split('\\n').filter(l => l && !l.startsWith('#'));
+
+            // split('\n') — a single newline character, not the two-char literal \n
+            const lines = csvText.split('\n').filter(l => l && !l.startsWith('#'));
+            if (lines.length < 2) return [];
+
             const headers = lines[0].split(',').map(h => h.trim());
             const data = [];
-            
+
             for (let i = 1; i < lines.length; i++) {
                 if (!lines[i].trim()) continue;
                 const values = lines[i].split(',');
                 const row = {};
                 headers.forEach((h, idx) => {
                     const val = values[idx];
-                    row[h] = isNaN(val) ? val : parseFloat(val);
+                    row[h] = (val !== undefined && !isNaN(val)) ? parseFloat(val) : val;
                 });
                 data.push(row);
             }
-            
+
             return data;
         }
         
@@ -1357,16 +1438,16 @@ const char index_html[] PROGMEM = R"rawliteral(
                                 title: {
                                     display: true,
                                     text: 'Forward (m)',
-                                    color: '#888'
+                                    color: '#999'
                                 },
                                 grid: { color: 'rgba(255,255,255,0.1)' },
-                                ticks: { color: '#888' }
+                                ticks: { color: '#999' }
                             },
                             y: {
                                 title: {
                                     display: true,
-                                    text: 'Lateral (m)',
-                                    color: '#888'
+                                    text: 'Height / Clearance (m)',
+                                    color: '#999'
                                 },
                                 grid: { color: 'rgba(255,255,255,0.1)' },
                                 ticks: { color: '#888' }
@@ -1441,19 +1522,6 @@ const char index_html[] PROGMEM = R"rawliteral(
             document.getElementById('comparisonStats').innerHTML = html;
         }
         
-        // Populate session selectors on logs fetch
-        const originalFetchLogs = fetchLogs;
-        if (typeof fetchLogs === 'function') {
-            fetchLogs = function() {
-                originalFetchLogs();
-                populateSessionSelectors();
-            };
-        } else {
-            // If fetch logs doesn't exist, create it
-            function fetchLogs() {
-                populateSessionSelectors();
-            }
-        }
     </script>
 </body>
 </html>

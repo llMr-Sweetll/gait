@@ -80,6 +80,7 @@ float stabilityIndex = 100.0f;
 
 // Stride tracking
 float lastStanceX = 0;
+float lastStanceY = 0;
 float recentStrides[10] = {0};
 int strideIdx = 0;
 
@@ -89,6 +90,8 @@ bool isStill = false;
 bool isCalibrated = false;
 float gyroBiasX = 0, gyroBiasY = 0, gyroBiasZ = 0;
 float accBiasX = 0, accBiasY = 0, accBiasZ = 0;
+float autoCalSumGyroX = 0, autoCalSumGyroY = 0, autoCalSumGyroZ = 0;
+int autoCalSamples = 0;
 
 // Battery
 float batteryVoltage = 0;
@@ -129,6 +132,7 @@ void showToast(String msg, int durationMs = 2500) {
 #define UI_TEXT 0xFFFF    // White
 #define UI_MUTED 0x7BEF   // Gray text
 #define UI_HEADER 0x1863  // Dark blue header
+#define STATUS_BAR_H 18   // Pixel height of status bar — use as Y offset for app content
 
 // Draw status bar at top of screen (call at start of each onDraw)
 void drawStatusBar(M5Canvas &c) {
@@ -177,7 +181,8 @@ void drawStatusBar(M5Canvas &c) {
     c.drawCenterString("Ready", 120, 5, 1);
   } else {
     c.setTextColor(UI_WARNING);
-    c.drawCenterString("Setup", 120, 5, 1);
+    // Flash between "Setup" and a hint so users know what to do
+    c.drawCenterString((millis() / 1500) % 2 ? "Stand still..." : "Setup", 120, 5, 1);
   }
 
   // === RIGHT: WiFi with client count ===
@@ -301,11 +306,12 @@ public:
 
     // 3. Variance check over window
     float accelVar = calculateVariance(accelWindow, 20);
-    float gyroMag = avg(gyroWindow, 20);
+    float gyroAvg  = avg(gyroWindow, 20);
+    float gyroVar  = calculateVariance(gyroWindow, 20);
 
     // 4. Multi-criteria detection
     bool lowAccelVar = (accelVar < currentThreshold);
-    bool lowGyro = (gyroMag < ZUPT_THRESH_DPS);
+    bool lowGyro = (gyroAvg < ZUPT_THRESH_DPS) && (gyroVar < ZUPT_THRESH_DPS);
     bool nearGravity = (abs(sqrt(ax * ax + ay * ay + az * az) - 1.0f) < 0.3f);
 
     return (lowAccelVar && lowGyro && nearGravity);
@@ -448,25 +454,36 @@ void checkAutoCalibration() {
 
   if (currentlyStill) {
     if (!isStill) {
-      // Just became still
+      // Just became still — reset accumulators
       stillStartTime = millis();
       isStill = true;
-    } else if ((millis() - stillStartTime > 3000) && !isCalibrated) {
-      // Still for 3 seconds -> auto-calibrate
-      gyroBiasX = gyroX;
-      gyroBiasY = gyroY;
-      gyroBiasZ = gyroZ;
+      autoCalSumGyroX = autoCalSumGyroY = autoCalSumGyroZ = 0;
+      autoCalSamples = 0;
+    } else {
+      // Accumulate every sample while still
+      autoCalSumGyroX += gyroX;
+      autoCalSumGyroY += gyroY;
+      autoCalSumGyroZ += gyroZ;
+      autoCalSamples++;
 
-      // Reset navigation state
-      pos = {0, 0, 0};
-      vel = {0, 0, 0};
-      stepCount = 0;
-      distanceTotal = 0;
-      lastStanceX = 0;
-      madgwick.reset();
+      if ((millis() - stillStartTime > 3000) && !isCalibrated) {
+        // Still for 3 seconds -> auto-calibrate using averaged samples
+        gyroBiasX = autoCalSumGyroX / autoCalSamples;
+        gyroBiasY = autoCalSumGyroY / autoCalSamples;
+        gyroBiasZ = autoCalSumGyroZ / autoCalSamples;
 
-      isCalibrated = true;
-      showToast("Auto-Cal!", 2000);
+        // Reset navigation state
+        pos = {0, 0, 0};
+        vel = {0, 0, 0};
+        stepCount = 0;
+        distanceTotal = 0;
+        lastStanceX = 0;
+        lastStanceY = 0;
+        madgwick.reset();
+
+        isCalibrated = true;
+        showToast("Auto-Cal!", 2000);
+      }
     }
   } else {
     isStill = false;
@@ -503,18 +520,22 @@ void updateBattery() {
   if (millis() - lastBatteryCheck < 5000)
     return; // Check every 5s
 
-  // Read voltage from GPIO38 (voltage divider: Vbat -> 2:1 -> ADC)
-  int adcValue = analogRead(38);
-  batteryVoltage = (adcValue / 4095.0f) * 3.3f * 2.0f; // Vbat = ADC * 2
+  // Use M5 Power library for accurate voltage (same source as BatteryApp)
+  batteryVoltage = M5.Power.getBatteryVoltage() / 1000.0f;
 
   // Convert to percentage (LiPo: 4.2V=100%, 3.0V=0%)
   batteryPercent = constrain(((batteryVoltage - 3.0f) / 1.2f) * 100, 0, 100);
 
   lastBatteryCheck = millis();
 
-  // Low battery warning
-  if (batteryPercent < 15 && batteryPercent > 13) {
+  // Low battery warning — trigger once per discharge cycle
+  static bool lowBatteryWarned = false;
+  if (batteryPercent < 15 && !lowBatteryWarned) {
     showToast("Low Battery!", 3000);
+    lowBatteryWarned = true;
+  }
+  if (batteryPercent >= 20) {
+    lowBatteryWarned = false; // Reset when charged back up
   }
 }
 
@@ -590,9 +611,14 @@ void ZUPT_INS_Update(float dt) {
   }
 
   // 6. Step Detection & Cadence
+  // Use navigation-frame acceleration magnitude (gravity already removed) —
+  // orientation-independent, unlike raw body-frame accZ
   static float maxSwing = 0;
-  if (!isStance && abs(accZ) > maxSwing)
-    maxSwing = abs(accZ);
+  float accel_nav_mag = sqrt(accel_nav[0] * accel_nav[0] +
+                             accel_nav[1] * accel_nav[1] +
+                             accel_nav[2] * accel_nav[2]);
+  if (!isStance && accel_nav_mag > maxSwing)
+    maxSwing = accel_nav_mag;
 
   if (isStance && maxSwing > MIN_SWING_ACCEL &&
       (millis() - lastStepTime > MIN_STEP_TIME_MS)) {
@@ -602,22 +628,27 @@ void ZUPT_INS_Update(float dt) {
     lastStepTime = millis();
     stepCount++;
 
-    // Stride length from integration (not hardcoded!)
-    float strideLength = abs(pos.x - lastStanceX);
+    // Stride length from integration — 2D (X+Y) for correct diagonal walking
+    float dx = pos.x - lastStanceX;
+    float dy = pos.y - lastStanceY;
+    float strideLength = sqrt(dx * dx + dy * dy);
     if (strideLength > 0.2f && strideLength < 2.0f) { // Sanity check
       distanceTotal += strideLength;
       recentStrides[strideIdx] = strideLength;
       strideIdx = (strideIdx + 1) % 10;
     }
     lastStanceX = pos.x;
+    lastStanceY = pos.y;
 
     // Cadence calculation
     float instCadence = 60000.0f / dur;
+    float prevCadence = currentCadence; // save before EMA update
     currentCadence = (currentCadence * 0.8f) + (instCadence * 0.2f);
 
-    // Stability Index
+    // Stability Index — compare against pre-update cadence so deviation
+    // isn't artificially shrunk by the EMA already incorporating instCadence
     float deviation =
-        abs(instCadence - currentCadence) / (currentCadence + 1.0f);
+        abs(instCadence - prevCadence) / (prevCadence + 1.0f);
     float instStability = constrain(100.0f * (1.0f - deviation), 0.0f, 100.0f);
     stabilityIndex = (stabilityIndex * 0.9f) + (instStability * 0.1f);
 
@@ -641,7 +672,10 @@ void ZUPT_INS_Update(float dt) {
 
       // Trigger device alert (LED + beep + toast)
       triggerAbnormalAlert();
-    } else if (!abnormalDetected) {
+    } else if (!abnormalDetected &&
+               (millis() - lastAbnormalTime > ABNORMAL_ALERT_COOLDOWN)) {
+      // Only clear flag once the alert cooldown has fully elapsed,
+      // so the alert doesn't vanish after a single normal step
       gaitAbnormal = false;
       abnormalReason = "";
     }
@@ -665,7 +699,7 @@ void ZUPT_INS_Update(float dt) {
 // =============================================================================
 void getStatusJSON() {
   String json = "{";
-  json += "\"recording\":" + String(isRecording) + ",";
+  json += "\"recording\":" + String(isRecording ? "true" : "false") + ",";
   json += "\"step_count\":" + String((int)stepCount) + ",";
   json += "\"dist_m\":" + String(distanceTotal, 2) + ",";
   json += "\"cad\":" + String(currentCadence, 1) + ",";
@@ -677,10 +711,10 @@ void getStatusJSON() {
   json += "\"pitch\":" + String(pitch, 1) + ",";
   json += "\"roll\":" + String(roll, 1) + ",";
   json += "\"yaw\":" + String(yaw, 1) + ",";
-  json += "\"is_stat\":" + String(isStance) + ",";
+  json += "\"is_stat\":" + String(isStance ? "true" : "false") + ",";
   json += "\"battery_pct\":" + String(batteryPercent) + ",";
   json += "\"battery_v\":" + String(batteryVoltage, 2) + ",";
-  json += "\"calibrated\":" + String(isCalibrated) + ",";
+  json += "\"calibrated\":" + String(isCalibrated ? "true" : "false") + ",";
   json += "\"abnormal\":" + String(gaitAbnormal ? "true" : "false") + ",";
   json += "\"abnormal_reason\":\"" + abnormalReason + "\"";
   json += "}";
@@ -848,10 +882,10 @@ public:
       showToast(String(batteryVoltage, 2) + "V / " + String(batteryPercent) +
                 "%");
       break;
-    case 1: // Sleep Mode
+    case 1: // Sleep Mode — deep sleep, wake on power button (GPIO37)
       showToast("Sleeping...");
       delay(1500);
-      M5.Power.powerOff();
+      M5.Power.deepSleep();
       break;
     case 2: // Power Off
       showToast("Shutting down...");
@@ -885,8 +919,8 @@ public:
     // Status bar at top
     drawStatusBar(c);
 
-    // Main content starts below status bar (y=22)
-    int y = 24;
+    // Main content starts below status bar
+    int y = STATUS_BAR_H + 4;
 
     // Large step counter
     c.setTextColor(UI_TEXT);
@@ -1013,7 +1047,7 @@ public:
   }
 
   void updateHistory() {
-    // Store current values
+    // Store current values — only called once per sensor update, not once per draw frame
     angleHistory[historyIdx][0] = roll;
     angleHistory[historyIdx][1] = pitch;
     angleHistory[historyIdx][2] = yaw;
@@ -1025,7 +1059,8 @@ public:
 
   void onDraw(M5Canvas &c) override {
     c.fillScreen(UI_BG);
-    updateHistory();
+    // updateHistory() is called by the sensor loop (via scopeNeedsUpdate flag),
+    // not here — so the scope doesn't oversample or undersample based on draw rate
 
     // Header with mode tabs
     c.fillRect(0, 0, 240, 18, UI_HEADER);
@@ -1398,18 +1433,16 @@ public:
 
     c.setTextColor(UI_MUTED);
     c.setTextSize(1);
-    c.drawCenterString("A: Delete  |  B: Next/Back", 120, 125, 1);
+    c.drawCenterString("A: Delete  |  B: Next / Back", 120, 125, 1);
   }
 
   void onBtnB() override {
-    if (fileCount == 0) {
+    if (fileCount == 0 || sel >= fileCount - 1) {
+      // At end of list (or empty) — go back to launcher
       currentApp = &launcher;
       playSound("click");
-    } else if (sel < fileCount - 1) {
-      sel++;
-      playSound("click");
     } else {
-      sel = 0;
+      sel++;
       playSound("click");
     }
   }
@@ -1654,13 +1687,15 @@ public:
                         220, 90, 1);
 
       c.setTextColor(UI_SUCCESS);
-      c.drawCenterString("A: Recalibrate | B: Done", 120, 110, 1);
+      c.drawCenterString("A: Recalibrate", 120, 110, 1);
     }
 
-    // Footer (only in ready state)
+    // Footer hint per state
+    c.setTextColor(UI_MUTED);
     if (state == 0) {
-      c.setTextColor(UI_MUTED);
       c.drawCenterString("B: Cancel", 120, 125, 1);
+    } else if (state == 2) {
+      c.drawCenterString("B: Back to Menu", 120, 125, 1);
     }
   }
 
@@ -1733,7 +1768,7 @@ void handleConfig() {
 
     // Manual JSON Parsing
     int idxStep = body.indexOf("step_time");
-    if (idxStep > 0) {
+    if (idxStep >= 0) {
       int valStart = body.indexOf(":", idxStep) + 1;
       int valEnd = body.indexOf(",", valStart);
       if (valEnd == -1)
@@ -1742,7 +1777,7 @@ void handleConfig() {
     }
 
     int idxZupt = body.indexOf("zupt_acc");
-    if (idxZupt > 0) {
+    if (idxZupt >= 0) {
       int valStart = body.indexOf(":", idxZupt) + 1;
       int valEnd = body.indexOf(",", valStart);
       if (valEnd == -1)
@@ -1849,6 +1884,7 @@ void checkStorageAndCleanup() {
       File file = root.openNextFile();
       while (file) {
         String name = String(file.name());
+        if (!name.startsWith("/")) name = "/" + name;
         if (name.endsWith(".csv")) {
           fileCount++;
           time_t modified = file.getLastWrite();
@@ -2160,6 +2196,11 @@ void loop() {
     gyroY -= gyroBiasY;
     gyroZ -= gyroBiasZ;
 
+    // Apply accel bias correction
+    accX -= accBiasX;
+    accY -= accBiasY;
+    accZ -= accBiasZ;
+
     // Update Madgwick filter (gyro in rad/s)
     madgwick.update(gyroX * DEG_TO_RAD, gyroY * DEG_TO_RAD, gyroZ * DEG_TO_RAD,
                     accX, accY, accZ, dt);
@@ -2168,6 +2209,9 @@ void loop() {
 
     // ZUPT-INS Update
     ZUPT_INS_Update(dt);
+
+    // Update scope history buffers at sensor rate (not at draw rate)
+    if (currentApp == &scope) scope.updateHistory();
 
     // Battery check
     updateBattery();
@@ -2224,11 +2268,13 @@ void loop() {
 
   // Draw
   currentApp->onDraw(canvas);
-  // Toast overlay
+  // Toast overlay — truncate long messages so they don't overflow the 120px box
   if (millis() < toastEndTime) {
-    canvas.fillRect(60, 100, 120, 30, DARKGREY);
-    canvas.setTextColor(WHITE);
-    canvas.drawCenterString(toastMsg, 120, 110, 1);
+    String displayMsg = toastMsg;
+    if (displayMsg.length() > 20) displayMsg = displayMsg.substring(0, 19) + "~";
+    canvas.fillRect(60, 100, 120, 30, UI_CARD);
+    canvas.setTextColor(UI_TEXT);
+    canvas.drawCenterString(displayMsg, 120, 110, 1);
   }
   canvas.pushSprite(0, 0);
 }
