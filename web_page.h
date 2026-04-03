@@ -9,11 +9,27 @@ const char index_html[] PROGMEM = R"rawliteral(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0a0a0a">
     <title>GaitOS V2.0</title>
     
-    <!-- Chart.js CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+    <!-- Chart.js: loaded dynamically to avoid blocking page on AP-only networks -->
+    <script>
+        // Non-blocking CDN loader — page works even if CDN is unreachable
+        (function() {
+            function loadScript(url, cb) {
+                var s = document.createElement('script');
+                s.src = url; s.async = true;
+                s.onload = function() { cb && cb(true); };
+                s.onerror = function() { console.warn('CDN unreachable: ' + url); cb && cb(false); };
+                document.head.appendChild(s);
+            }
+            loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.0', function(ok) {
+                if (ok) loadScript('https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1');
+            });
+        })();
+    </script>
     
     <style>
         :root {
@@ -197,10 +213,81 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
 
         @media (max-width: 768px) {
-            .grid-2, .grid-3, .grid-4 {
-                grid-template-columns: 1fr;
-            }
+            .grid-2 { grid-template-columns: 1fr; }
+            .grid-3 { grid-template-columns: 1fr; }
+            .grid-4 { grid-template-columns: repeat(2, 1fr); }
+            body { padding: 12px; padding-bottom: 80px; }
+            .header h1 { font-size: 22px; }
+            .metric-value { font-size: 28px; }
+            .action-bar { padding: 12px 16px; }
         }
+
+        /* Toggle Switch */
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-label {
+            font-size: 13px;
+            color: var(--text);
+        }
+        .toggle-desc {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle .slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: rgba(255,255,255,0.15);
+            border-radius: 24px;
+            transition: 0.25s;
+        }
+        .toggle .slider::before {
+            content: '';
+            position: absolute;
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.25s;
+        }
+        .toggle input:checked + .slider {
+            background: var(--success);
+        }
+        .toggle input:checked + .slider::before {
+            transform: translateX(20px);
+        }
+
+        /* Live alert indicator */
+        .alert-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+        .alert-dot.green { background: var(--success); }
+        .alert-dot.red { background: var(--danger); animation: pulse 0.6s infinite; }
+        .alert-dot.off { background: rgba(255,255,255,0.2); }
 
         /* Chart Container */
         .chart-wrapper {
@@ -471,6 +558,112 @@ const char index_html[] PROGMEM = R"rawliteral(
             background: rgba(10, 132, 255, 0.2);
             border: 1px solid var(--accent);
         }
+
+        /* Traffic Light Indicator */
+        .traffic-light {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 18px;
+            border-radius: 14px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            transition: all 0.4s ease;
+        }
+        .traffic-light.zone-ok { border-color: var(--success); }
+        .traffic-light.zone-warning { border-color: var(--warning); }
+        .traffic-light.zone-critical { border-color: var(--danger); box-shadow: 0 0 20px rgba(255,69,58,0.3); }
+
+        .traffic-dot {
+            width: 28px; height: 28px; border-radius: 50%;
+            background: rgba(255,255,255,0.15);
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+        .traffic-dot.green { background: var(--success); box-shadow: 0 0 12px rgba(50,215,75,0.5); }
+        .traffic-dot.amber { background: var(--warning); box-shadow: 0 0 12px rgba(255,159,10,0.5); animation: pulse 1s infinite; }
+        .traffic-dot.red { background: var(--danger); box-shadow: 0 0 16px rgba(255,69,58,0.6); animation: pulse 0.5s infinite; }
+
+        .traffic-text { flex: 1; }
+        .traffic-title { font-size: 14px; font-weight: 700; }
+        .traffic-reason { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        /* Bottom Tab Navigation */
+        .bottom-tabs {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: rgba(10, 10, 10, 0.97);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid var(--card-border);
+            display: flex;
+            z-index: 200;
+            padding-bottom: env(safe-area-inset-bottom, 0);
+        }
+        .tab-btn {
+            flex: 1; display: flex; flex-direction: column; align-items: center;
+            gap: 3px; padding: 8px 4px 6px;
+            background: none; border: none; color: var(--text-muted);
+            font-size: 10px; font-family: var(--font); cursor: pointer;
+            transition: color 0.2s;
+        }
+        .tab-btn.active { color: var(--accent); }
+        .tab-btn .tab-icon { font-size: 20px; line-height: 1; }
+
+        /* Tab Sections */
+        .tab-section { display: none; }
+        .tab-section.active { display: flex; flex-direction: column; gap: 20px; }
+
+        /* Floating Record Button */
+        .record-fab {
+            position: fixed; bottom: 70px; right: 20px;
+            width: 56px; height: 56px;
+            border-radius: 50%; border: none;
+            background: var(--accent); color: white;
+            font-size: 24px; cursor: pointer;
+            box-shadow: 0 4px 16px rgba(10,132,255,0.4);
+            z-index: 201; display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s;
+        }
+        .record-fab.recording { background: var(--danger); box-shadow: 0 4px 16px rgba(255,69,58,0.4); animation: pulse 1.5s infinite; }
+
+        /* Web Audio Mute Toggle */
+        .mute-btn {
+            background: none; border: 1px solid var(--card-border);
+            color: var(--text-muted); padding: 4px 10px; border-radius: 6px;
+            font-size: 12px; cursor: pointer; font-family: var(--font);
+        }
+        .mute-btn.muted { color: var(--danger); border-color: var(--danger); }
+
+        /* Storage Bar */
+        .storage-bar-container {
+            background: rgba(255,255,255,0.05); border-radius: 6px;
+            padding: 10px 14px; margin-bottom: 12px;
+        }
+        .storage-bar {
+            height: 6px; background: rgba(255,255,255,0.1);
+            border-radius: 3px; overflow: hidden; margin-top: 6px;
+        }
+        .storage-bar-fill {
+            height: 100%; border-radius: 3px;
+            background: var(--accent); transition: width 0.5s;
+        }
+        .storage-bar-fill.warn { background: var(--warning); }
+        .storage-bar-fill.crit { background: var(--danger); }
+
+        /* Metric card glow on alert */
+        .metric-card.glow-warning { box-shadow: 0 0 12px rgba(255,159,10,0.3); }
+        .metric-card.glow-critical { box-shadow: 0 0 16px rgba(255,69,58,0.4); }
+
+        /* Mobile improvements */
+        @media (max-width: 768px) {
+            .grid-2 { grid-template-columns: 1fr; }
+            .grid-3 { grid-template-columns: 1fr; }
+            .grid-4 { grid-template-columns: repeat(2, 1fr); }
+            body { padding: 12px; padding-bottom: 120px; }
+            .header h1 { font-size: 22px; }
+            .metric-value { font-size: 28px; }
+            .bottom-tabs { padding-bottom: env(safe-area-inset-bottom, 8px); }
+            .record-fab { bottom: 74px; right: 16px; }
+        }
     </style>
 </head>
 <body>
@@ -478,18 +671,33 @@ const char index_html[] PROGMEM = R"rawliteral(
         <!-- Header -->
         <div class="header">
             <h1>GaitOS V2.0</h1>
-            <div class="status-badge">
-                <div class="live-dot"></div>
-                <span id="status-text">CONNECTED</span>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button id="mute-web-audio" class="mute-btn" onclick="toggleWebMute()" title="Mute/unmute browser beeps">🔊</button>
+                <div class="status-badge">
+                    <div class="live-dot"></div>
+                    <span id="status-text">CONNECTED</span>
+                </div>
             </div>
         </div>
+
+        <!-- Traffic Light Indicator -->
+        <div id="traffic-light" class="traffic-light zone-ok">
+            <div id="traffic-dot" class="traffic-dot"></div>
+            <div class="traffic-text">
+                <div id="traffic-title" class="traffic-title">Waiting for data...</div>
+                <div id="traffic-reason" class="traffic-reason">Calibrate device to begin</div>
+            </div>
+        </div>
+
+        <!-- ============ TAB: LIVE ============ -->
+        <div id="section-live" class="tab-section active">
 
         <!-- Primary Metrics -->
         <div class="grid-2">
             <div class="metric-card" data-metric="stability">
                 <div class="metric-header">
                     <span class="metric-label">Stability Index</span>
-                    <span class="metric-info" title="Gait rhythmicity - 100% is perfect consistency">ⓘ</span>
+                    <span class="metric-info" title="Gait rhythmicity - 100% is perfect consistency. >85%=excellent, 50-85%=monitor, <50%=high fall risk">ⓘ</span>
                 </div>
                 <div class="metric-value-container">
                     <div class="metric-value" id="val-stab">--</div>
@@ -505,7 +713,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="metric-card" data-metric="cadence">
                 <div class="metric-header">
                     <span class="metric-label">Cadence</span>
-                    <span class="metric-info" title="Steps per minute - Normal range: 90-130">ⓘ</span>
+                    <span class="metric-info" title="Steps per minute. 90-130=OK zone, 70-89/131-150=warning, <70/>150=critical">ⓘ</span>
                 </div>
                 <div class="metric-value-container">
                     <div class="metric-value" id="val-cad">--</div>
@@ -542,6 +750,11 @@ const char index_html[] PROGMEM = R"rawliteral(
             </div>
         </div>
 
+        </div><!-- /section-live -->
+
+        <!-- ============ TAB: CHARTS ============ -->
+        <div id="section-charts" class="tab-section">
+
         <!-- Real-Time Trajectory Chart -->
         <div class="card">
             <div class="metric-label" style="margin-bottom: 10px;">Real-Time Trajectory (Side View)</div>
@@ -562,6 +775,73 @@ const char index_html[] PROGMEM = R"rawliteral(
             </div>
         </div>
 
+        </div><!-- /section-charts -->
+
+        <!-- ============ TAB: ALERTS ============ -->
+        <div id="section-alerts" class="tab-section">
+
+        <div class="card">
+            <div class="collapsible-header" onclick="toggleSection('alerts')">
+                <div class="metric-label"><span id="alert-indicator" class="alert-dot off"></span>Patient Alerts</div>
+                <div class="metric-label" style="color:var(--accent)">▼</div>
+            </div>
+            <div id="alerts-panel" class="collapsible-content">
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Beep Alerts</div>
+                        <div class="toggle-desc">Audio warning when out of range</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" id="tog-beep" checked onchange="updateAlerts()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">LED Indicator</div>
+                        <div class="toggle-desc">OK=1Hz pulse, Warn=2Hz, Critical=4Hz blink</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" id="tog-led" checked onchange="updateAlerts()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Range Monitoring</div>
+                        <div class="toggle-desc">Continuous gait range checking</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" id="tog-range" checked onchange="updateAlerts()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div style="margin-top:12px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.1);">
+                    <div class="metric-label" style="margin-bottom:10px;">Safe Ranges</div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:11px;">Cadence Min (spm)</label>
+                            <input type="number" id="alert-cad-min" value="70" min="30" max="120" style="padding:8px;">
+                        </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:11px;">Cadence Max (spm)</label>
+                            <input type="number" id="alert-cad-max" value="150" min="80" max="200" style="padding:8px;">
+                        </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:11px;">Min Stability (%)</label>
+                            <input type="number" id="alert-stab-min" value="50" min="10" max="90" style="padding:8px;">
+                        </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:11px;">Min Clearance (cm)</label>
+                            <input type="number" id="alert-clear-min" value="2" min="0" max="10" step="0.5" style="padding:8px;">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="saveAlertConfig()" style="width:100%; margin-top:4px;">Apply Alert Settings</button>
+                </div>
+                <div id="alert-status" style="margin-top:10px; padding:8px; border-radius:8px; font-size:12px; display:none;"></div>
+            </div>
+        </div>
+
         <!-- Advanced Tuning -->
         <div class="card">
             <div class="collapsible-header" onclick="toggleSection('tuning')">
@@ -578,6 +858,22 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <input type="number" id="cfg-zupt-acc" value="0.25" step="0.05" min="0.05" max="1.0" placeholder="0.25">
                 </div>
                 <button class="btn btn-primary" onclick="saveConfig()" style="width:100%;">Apply Settings</button>
+            </div>
+        </div>
+
+        </div><!-- /section-alerts -->
+
+        <!-- ============ TAB: DATA ============ -->
+        <div id="section-data" class="tab-section">
+
+        <!-- Storage Usage -->
+        <div class="storage-bar-container">
+            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span>Storage</span>
+                <span id="storage-text">Loading...</span>
+            </div>
+            <div class="storage-bar">
+                <div id="storage-fill" class="storage-bar-fill" style="width:0%"></div>
             </div>
         </div>
 
@@ -620,6 +916,8 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div id="logs-panel" class="collapsible-content">
                 <div id="log-list"></div>
             </div>
+        </div><!-- /session logs card -->
+
         <!-- PHASE 4: Session Comparison (inside container for max-width constraint) -->
         <div class="card">
             <div class="metric-label" style="margin-bottom: 15px;">Session Comparison</div>
@@ -640,14 +938,30 @@ const char index_html[] PROGMEM = R"rawliteral(
                 </div>
                 <div id="comparisonStats"></div>
             </div>
-        </div>
-    </div>
+        </div><!-- /session comparison -->
 
-    <!-- Floating Action Bar -->
-    <div class="action-bar">
-        <button class="btn btn-glass" onclick="api('calibrate')" style="flex:1;">Zero Sensors</button>
-        <button id="btn-toggle" class="btn btn-primary" onclick="toggleRecord()" style="flex:2;">Start Recording</button>
-    </div>
+        </div><!-- /section-data -->
+
+    </div><!-- /container -->
+
+    <!-- Bottom Tab Navigation -->
+    <nav class="bottom-tabs">
+        <button class="tab-btn active" data-tab="live" onclick="switchTab('live')">
+            <span class="tab-icon">📊</span>Live
+        </button>
+        <button class="tab-btn" data-tab="charts" onclick="switchTab('charts')">
+            <span class="tab-icon">📈</span>Charts
+        </button>
+        <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts')">
+            <span class="tab-icon">⚠️</span>Alerts
+        </button>
+        <button class="tab-btn" data-tab="data" onclick="switchTab('data')">
+            <span class="tab-icon">💾</span>Data
+        </button>
+    </nav>
+
+    <!-- Floating Record Button -->
+    <button id="record-fab" class="record-fab" onclick="toggleRecord()" title="Start / Stop Recording">⏺</button>
 
     <!-- Session Modal -->
     <div id="sessionModal" class="modal">
@@ -693,6 +1007,122 @@ const char index_html[] PROGMEM = R"rawliteral(
         let recording = false;
         let selectedLog = null;
         let recordingActionPending = false; // lock to prevent sync() overriding in-flight actions
+        let alertsInitialized = false;
+        let webAudioMuted = false;
+        let lastWebBeepTime = 0;
+
+        // Web Audio for browser beeps
+        let audioCtx = null;
+        function getAudioCtx() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            return audioCtx;
+        }
+
+        // --- Tab Routing ---
+        let chartsInitialized = false;
+
+        function switchTab(tabName) {
+            ['live','charts','alerts','data'].forEach(t => {
+                const section = document.getElementById('section-' + t);
+                const btn = document.querySelector('.tab-btn[data-tab=\"' + t + '\"]');
+                if (section) section.classList.toggle('active', t === tabName);
+                if (btn) btn.classList.toggle('active', t === tabName);
+            });
+            if (location.hash !== '#' + tabName) {
+                history.pushState(null, '', '#' + tabName);
+            }
+            // Lazy-init charts on first visit (Chart.js needs visible canvas)
+            if (tabName === 'charts' && !chartsInitialized) {
+                setTimeout(function() { initCharts(); chartsInitialized = true; }, 50);
+            }
+            // Resize charts when re-visiting charts tab
+            if (tabName === 'charts' && chartsInitialized) {
+                if (typeof trajectoryChart !== 'undefined' && trajectoryChart) trajectoryChart.resize();
+                if (typeof cadenceChart !== 'undefined' && cadenceChart) cadenceChart.resize();
+            }
+            // Fetch storage when switching to data tab
+            if (tabName === 'data') fetchStorageUsage();
+        }
+
+        window.addEventListener('hashchange', () => {
+            const hash = location.hash.replace('#', '') || 'live';
+            switchTab(hash);
+        });
+
+        // Init from hash
+        if (location.hash) switchTab(location.hash.replace('#', ''));
+
+        // --- Traffic Light Updater ---
+        function updateTrafficLight(zone, reason) {
+            const el = document.getElementById('traffic-light');
+            const dot = document.getElementById('traffic-dot');
+            const title = document.getElementById('traffic-title');
+            const reasonEl = document.getElementById('traffic-reason');
+
+            el.className = 'traffic-light zone-' + zone;
+            dot.className = 'traffic-dot ' + (zone === 'ok' ? 'green' : zone === 'warning' ? 'amber' : 'red');
+            
+            if (zone === 'ok') {
+                title.textContent = 'All metrics in range';
+                reasonEl.textContent = 'Patient gait is normal';
+            } else if (zone === 'warning') {
+                title.textContent = '⚠ Warning';
+                reasonEl.textContent = reason || 'Borderline metric detected';
+            } else {
+                title.textContent = '🔴 Critical Alert';
+                reasonEl.textContent = reason || 'Out of safe range';
+            }
+        }
+
+        // --- Web Audio Beep ---
+        function playWebBeep(freq, duration) {
+            if (webAudioMuted) return;
+            if (Date.now() - lastWebBeepTime < 2000) return; // Cooldown
+            lastWebBeepTime = Date.now();
+            try {
+                const ctx = getAudioCtx();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.frequency.value = freq || 800;
+                gain.gain.value = 0.3;
+                osc.start();
+                osc.stop(ctx.currentTime + (duration || 200) / 1000);
+            } catch(e) { /* Web Audio not supported */ }
+        }
+
+        function toggleWebMute() {
+            webAudioMuted = !webAudioMuted;
+            const btn = document.getElementById('mute-web-audio');
+            btn.textContent = webAudioMuted ? '🔇' : '🔊';
+            btn.classList.toggle('muted', webAudioMuted);
+        }
+
+        // --- Storage Usage ---
+        async function fetchStorageUsage() {
+            try {
+                const res = await fetch('/api/storage');
+                const d = await res.json();
+                const pct = d.percent || 0;
+                const usedKB = (d.used / 1024).toFixed(0);
+                const totalKB = (d.total / 1024).toFixed(0);
+                document.getElementById('storage-text').textContent = usedKB + ' / ' + totalKB + ' KB (' + pct + '%)';
+                const fill = document.getElementById('storage-fill');
+                fill.style.width = pct + '%';
+                fill.className = 'storage-bar-fill' + (pct > 90 ? ' crit' : pct > 70 ? ' warn' : '');
+            } catch(e) {}
+        }
+
+        // --- Record FAB ---
+        function updateRecordFab() {
+            const fab = document.getElementById('record-fab');
+            if (fab) {
+                fab.textContent = recording ? '⏹' : '⏺';
+                fab.classList.toggle('recording', recording);
+                fab.title = recording ? 'Stop Recording' : 'Start Recording';
+            }
+        }
 
         // Metric history for statistics and trends (per session — reset on each recording)
         const metricHistory = {
@@ -731,12 +1161,18 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         // Initialize charts on page load
         window.onload = function() {
-            initCharts();
+            // Charts initialized lazily on first tab visit (needs visible canvas)
             fetchLogs();
+            fetchStorageUsage();
             setInterval(sync, 500); // 500ms: fast enough for live display, won't flood device
         };
 
         function initCharts() {
+            // Guard: Chart.js may not be available on AP-only networks (no CDN)
+            if (typeof Chart === 'undefined') {
+                console.warn('Chart.js not loaded — charts unavailable in AP mode');
+                return;
+            }
             // Trajectory Chart
             const trajCtx = document.getElementById('trajectoryChart').getContext('2d');
             trajectoryChart = new Chart(trajCtx, {
@@ -838,26 +1274,81 @@ const char index_html[] PROGMEM = R"rawliteral(
                 document.getElementById('val-dist').innerText = d.dist_m.toFixed(1);
                 document.getElementById('val-phase').innerText = d.phase ? "SWING" : "STANCE";
                 
-                // Update charts
-                trajectoryChart.data.datasets[0].data.push({x: d.px, y: d.pz});
-                if (trajectoryChart.data.datasets[0].data.length > 300) {
-                    trajectoryChart.data.datasets[0].data.shift();
+                // Update charts (guarded — charts are lazy-initialized)
+                if (trajectoryChart) {
+                    trajectoryChart.data.datasets[0].data.push({x: d.px, y: d.pz});
+                    if (trajectoryChart.data.datasets[0].data.length > 300) {
+                        trajectoryChart.data.datasets[0].data.shift();
+                    }
+                    trajectoryChart.update('none');
                 }
-                trajectoryChart.update('none');
                 
-                cadenceChart.data.labels.push('');
-                cadenceChart.data.datasets[0].data.push(d.cad);
-                if (cadenceChart.data.datasets[0].data.length > 60) {
-                    cadenceChart.data.labels.shift();
-                    cadenceChart.data.datasets[0].data.shift();
+                if (cadenceChart) {
+                    cadenceChart.data.labels.push('');
+                    cadenceChart.data.datasets[0].data.push(d.cad);
+                    if (cadenceChart.data.datasets[0].data.length > 60) {
+                        cadenceChart.data.labels.shift();
+                        cadenceChart.data.datasets[0].data.shift();
+                    }
+                    cadenceChart.update('none');
                 }
-                cadenceChart.update('none');
                 
                 // Sync recording state from device — skip if a local action is in-flight
-                // to prevent race where device hasn't processed our command yet
                 if (!recordingActionPending && d.recording !== recording) {
                     recording = d.recording;
                     updateRecordButton();
+                    updateRecordFab();
+                }
+
+                // Update alert indicator
+                const alertDot = document.getElementById('alert-indicator');
+                const alertStatus = document.getElementById('alert-status');
+
+                // Traffic light + zone updates
+                const zone = d.zone || 'ok';
+                const reason = d.range_reason || d.abnormal_reason || '';
+                updateTrafficLight(zone, reason);
+
+                if (d.range_alert || d.abnormal) {
+                    alertDot.className = 'alert-dot red';
+                    if (alertStatus) {
+                        alertStatus.style.display = 'block';
+                        alertStatus.style.background = 'rgba(255,69,58,0.15)';
+                        alertStatus.style.color = 'var(--danger)';
+                        alertStatus.innerText = 'OUT OF RANGE: ' + (reason || 'Alert');
+                    }
+                    // Web audio beep on critical
+                    if (zone === 'critical') {
+                        playWebBeep(800, 200);
+                        // Mobile vibration
+                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                    }
+                } else if (d.calibrated && d.step_count > 0) {
+                    alertDot.className = 'alert-dot green';
+                    if (alertStatus) {
+                        alertStatus.style.display = 'block';
+                        alertStatus.style.background = 'rgba(50,215,75,0.1)';
+                        alertStatus.style.color = 'var(--success)';
+                        alertStatus.innerText = 'All metrics in range';
+                    }
+                } else {
+                    alertDot.className = 'alert-dot off';
+                    if (alertStatus) alertStatus.style.display = 'none';
+                }
+
+                // Metric card glow based on zone
+                document.querySelectorAll('.metric-card').forEach(card => {
+                    card.classList.remove('glow-warning', 'glow-critical');
+                    if (zone === 'critical') card.classList.add('glow-critical');
+                    else if (zone === 'warning') card.classList.add('glow-warning');
+                });
+
+                // Sync toggle states from device (initial load)
+                if (!alertsInitialized) {
+                    document.getElementById('tog-beep').checked = d.beep_on;
+                    document.getElementById('tog-led').checked = d.led_on;
+                    document.getElementById('tog-range').checked = d.range_on;
+                    alertsInitialized = true;
                 }
 
                 // Update connection badge (connected)
@@ -933,7 +1424,12 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         // API calls
         async function api(endpoint) {
-            await fetch('/api/' + endpoint, { method: 'POST' });
+            try {
+                await fetch('/api/' + endpoint, { method: 'POST' });
+            } catch (err) {
+                console.error('API error (' + endpoint + '):', err);
+                showToast('✗ Device not reachable');
+            }
         }
 
         // Recording with session management
@@ -946,7 +1442,13 @@ const char index_html[] PROGMEM = R"rawliteral(
                     recording = false;
                     recordingActionPending = false;
                     updateRecordButton();
+                    updateRecordFab();
                     fetchLogs();
+                    fetchStorageUsage();
+                }).catch(err => {
+                    console.error('Stop recording error:', err);
+                    recordingActionPending = false;
+                    showToast('✗ Failed to stop recording');
                 });
             }
         }
@@ -965,19 +1467,26 @@ const char index_html[] PROGMEM = R"rawliteral(
                 notes: document.getElementById('sessionNotes').value
             };
 
-            recordingActionPending = true;
-            await fetch('/api/record/start', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(metadata)
-            });
+            try {
+                recordingActionPending = true;
+                await fetch('/api/record/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(metadata)
+                });
 
-            recording = true;
-            recordingActionPending = false;
-            updateRecordButton();
-            closeSessionModal();
-            resetSession(); // clear charts and history for the new session
-            document.getElementById('sessionForm').reset();
+                recording = true;
+                recordingActionPending = false;
+                updateRecordButton();
+                updateRecordFab();
+                closeSessionModal();
+                resetSession(); // clear charts and history for the new session
+                document.getElementById('sessionForm').reset();
+            } catch (err) {
+                console.error('Start session error:', err);
+                recordingActionPending = false;
+                showToast('✗ Failed to start recording');
+            }
         }
 
         function generateSessionName() {
@@ -987,6 +1496,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         function updateRecordButton() {
             const btn = document.getElementById('btn-toggle');
+            if (!btn) return; // btn-toggle may not exist with new bottom tab layout
             if (recording) {
                 btn.innerText = 'Stop Recording';
                 btn.className = 'btn btn-danger';
@@ -994,6 +1504,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 btn.innerText = 'Start Recording';
                 btn.className = 'btn btn-primary';
             }
+            updateRecordFab();
         }
 
         // Configuration
@@ -1019,10 +1530,60 @@ const char index_html[] PROGMEM = R"rawliteral(
             }
         }
 
+        // --- Alert Controls ---
+        async function updateAlerts() {
+            try {
+                await fetch('/api/alerts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        beep: document.getElementById('tog-beep').checked,
+                        led: document.getElementById('tog-led').checked,
+                        range: document.getElementById('tog-range').checked
+                    })
+                });
+            } catch (err) {
+                console.error('Alert toggle error:', err);
+                showToast('✗ Failed to update alerts');
+            }
+        }
+
+        async function saveAlertConfig() {
+            try {
+                const res = await fetch('/api/alerts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        beep: document.getElementById('tog-beep').checked,
+                        led: document.getElementById('tog-led').checked,
+                        range: document.getElementById('tog-range').checked,
+                        cad_min: parseFloat(document.getElementById('alert-cad-min').value),
+                        cad_max: parseFloat(document.getElementById('alert-cad-max').value),
+                        stab_min: parseFloat(document.getElementById('alert-stab-min').value),
+                        clear_min: parseFloat(document.getElementById('alert-clear-min').value) / 100 // cm to meters
+                    })
+                });
+                if (res.ok) {
+                    showToast('✓ Alert settings applied');
+                } else {
+                    showToast('✗ Failed to apply alert settings');
+                }
+            } catch (err) {
+                console.error('Save alert config error:', err);
+                showToast('✗ Device not reachable');
+            }
+        }
+
         // Logs
         async function fetchLogs() {
-            const res = await fetch('/api/logs');
-            const logs = await res.json();
+            let res, logs;
+            try {
+                res = await fetch('/api/logs');
+                logs = await res.json();
+            } catch (err) {
+                console.error('fetchLogs error:', err);
+                return;
+            }
 
             const listEl = document.getElementById('log-list');
             if (logs.length === 0) {
@@ -1067,34 +1628,40 @@ const char index_html[] PROGMEM = R"rawliteral(
                 alert('Please select a session');
                 return;
             }
-            
-            const path = selectedLog.startsWith('/') ? selectedLog : '/' + selectedLog;
-            const response = await fetch(path);
-            const csvText = await response.text();
-            
-            const lines = csvText.split('\n').filter(l => l && !l.startsWith('#'));
-            const headers = lines[0].split(',').map(h => h.trim());
-            const data = [];
-            
-            for (let i = 1; i < lines.length; i++) {
-                if (!lines[i].trim()) continue;
-                const values = lines[i].split(',');
-                const row = {};
-                headers.forEach((h, idx) => {
-                    const val = values[idx];
-                    row[h] = isNaN(val) ? val : parseFloat(val);
-                });
-                data.push(row);
+
+            try {
+                const path = selectedLog.startsWith('/') ? selectedLog : '/' + selectedLog;
+                const response = await fetch(path);
+                if (!response.ok) throw new Error('Failed to fetch session');
+                const csvText = await response.text();
+
+                const lines = csvText.split('\n').filter(l => l && !l.startsWith('#'));
+                const headers = lines[0].split(',').map(h => h.trim());
+                const data = [];
+
+                for (let i = 1; i < lines.length; i++) {
+                    if (!lines[i].trim()) continue;
+                    const values = lines[i].split(',');
+                    const row = {};
+                    headers.forEach((h, idx) => {
+                        const val = values[idx];
+                        row[h] = isNaN(val) ? val : parseFloat(val);
+                    });
+                    data.push(row);
+                }
+
+                const json = JSON.stringify({
+                    session: selectedLog,
+                    format: 'GaitOS V2.0',
+                    recordCount: data.length,
+                    data: data
+                }, null, 2);
+
+                downloadFile(json, selectedLog.replace('.csv', '.json'), 'application/json');
+            } catch (err) {
+                console.error('Export JSON error:', err);
+                showToast('✗ Export failed');
             }
-            
-            const json = JSON.stringify({
-                session: selectedLog,
-                format: 'GaitOS V2.0',
-                recordCount: data.length,
-                data: data
-            }, null, 2);
-            
-            downloadFile(json, selectedLog.replace('.csv', '.json'), 'application/json');
         }
 
         async function exportSummary() {
@@ -1102,9 +1669,11 @@ const char index_html[] PROGMEM = R"rawliteral(
                 alert('Please select a session');
                 return;
             }
-            
+
+            try {
             const path2 = selectedLog.startsWith('/') ? selectedLog : '/' + selectedLog;
             const response = await fetch(path2);
+            if (!response.ok) throw new Error('Failed to fetch session');
             const csvText = await response.text();
             const stats = calculateSessionStats(csvText);
             
@@ -1150,6 +1719,10 @@ const char index_html[] PROGMEM = R"rawliteral(
 </html>`;
             
             downloadFile(html, selectedLog.replace('.csv', '_report.html'), 'text/html');
+            } catch (err) {
+                console.error('Export summary error:', err);
+                showToast('✗ Export failed');
+            }
         }
 
         function calculateSessionStats(csvText) {
@@ -1293,7 +1866,16 @@ const char index_html[] PROGMEM = R"rawliteral(
             }
         }
         
+        let activeToast = null;
+        let activeToastTimer = null;
         function showToast(msg) {
+            // Remove previous toast immediately
+            if (activeToast) {
+                clearTimeout(activeToastTimer);
+                activeToast.remove();
+                activeToast = null;
+            }
+
             // Pick color by message prefix
             let bg = '#32D74B'; // success green
             if (msg.startsWith('✗'))  bg = '#FF453A'; // error red
@@ -1318,11 +1900,15 @@ const char index_html[] PROGMEM = R"rawliteral(
                 word-break: break-word;
             `;
             document.body.appendChild(toast);
+            activeToast = toast;
 
-            setTimeout(() => {
+            activeToastTimer = setTimeout(() => {
                 toast.style.opacity = '0';
                 toast.style.transition = 'opacity 0.3s';
-                setTimeout(() => toast.remove(), 300);
+                setTimeout(() => {
+                    toast.remove();
+                    if (activeToast === toast) activeToast = null;
+                }, 300);
             }, 2500);
         }
         

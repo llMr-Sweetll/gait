@@ -24,7 +24,8 @@
 #include <WiFi.h>
 
 #include "MadgwickFilter.h"
-#include "esp_task_wdt.h" // PHASE 4: Watchdog
+#include "esp_system.h"
+// esp_task_wdt removed — Arduino core manages WDT
 #include "web_page.h"
 
 // =============================================================================
@@ -134,6 +135,41 @@ void showToast(String msg, int durationMs = 2500) {
 #define UI_HEADER 0x1863  // Dark blue header
 #define STATUS_BAR_H 18   // Pixel height of status bar — use as Y offset for app content
 
+// Abnormality tracking
+bool gaitAbnormal = false;
+String abnormalReason = "";
+unsigned long lastAbnormalTime = 0;
+const unsigned long ABNORMAL_ALERT_COOLDOWN = 3000;
+
+// Real-time alert system
+bool alertBeepEnabled = true;
+bool alertLedEnabled = true;
+bool alertRangeEnabled = true;
+
+float alertCadenceMin = 70.0f;
+float alertCadenceMax = 150.0f;
+float alertStabilityMin = 50.0f;
+float alertClearanceMin = 0.02f;
+
+const float CADENCE_OK_MIN = 90.0f;
+const float CADENCE_OK_MAX = 130.0f;
+const float STABILITY_OK_MIN = 80.0f;
+const float CLEARANCE_OK_MIN = 0.02f;
+const float CLEARANCE_WARN_MIN = 0.01f;
+
+int alertZone = 0;
+String alertZoneStr = "ok";
+
+bool rangeAlertActive = false;
+String rangeAlertReason = "";
+unsigned long lastRangeAlertTime = 0;
+const unsigned long RANGE_ALERT_COOLDOWN_OK = 3000;
+const unsigned long RANGE_ALERT_COOLDOWN_WARN = 3000;
+const unsigned long RANGE_ALERT_COOLDOWN_CRIT = 2000;
+
+bool ledAlertState = false;
+unsigned long lastLedToggle = 0;
+
 // Draw status bar at top of screen (call at start of each onDraw)
 void drawStatusBar(M5Canvas &c) {
   // Background gradient effect (dark blue)
@@ -185,14 +221,21 @@ void drawStatusBar(M5Canvas &c) {
     c.drawCenterString((millis() / 1500) % 2 ? "Stand still..." : "Setup", 120, 5, 1);
   }
 
-  // === RIGHT: WiFi with client count ===
+  // === RIGHT: Alert dot + WiFi ===
+  // Alert indicator (replaces hardware LED)
+  if (ledAlertState && alertLedEnabled) {
+    uint16_t dotColor = (alertZone == 2 || gaitAbnormal) ? UI_DANGER
+                       : (alertZone == 1) ? UI_WARNING : UI_SUCCESS;
+    c.fillCircle(200, 9, 4, dotColor);
+  }
+
   int clientCount = WiFi.softAPgetStationNum();
   if (clientCount > 0) {
     c.setTextColor(UI_SUCCESS);
-    c.drawRightString(String(clientCount) + " conn", 235, 5, 1);
+    c.drawRightString(String(clientCount) + "c", 235, 5, 1);
   } else {
     c.setTextColor(UI_MUTED);
-    c.drawRightString("WiFi On", 235, 5, 1);
+    c.drawRightString("WiFi", 235, 5, 1);
   }
 }
 
@@ -254,7 +297,6 @@ void showSplashScreen() {
     canvas.fillRect(barX, barY, i, barH, UI_ACCENT);
     canvas.pushSprite(0, 0);
     delay(12);
-    esp_task_wdt_reset(); // Keep watchdog happy
   }
 
   // Welcome message
@@ -436,11 +478,178 @@ private:
 
 GaitAnomalyDetector anomalyDetector;
 
+/*
 // Abnormality tracking
 bool gaitAbnormal = false;
 String abnormalReason = "";
 unsigned long lastAbnormalTime = 0;
 const unsigned long ABNORMAL_ALERT_COOLDOWN = 3000; // 3 seconds
+
+// =============================================================================
+// REAL-TIME ALERT SYSTEM (THREE-ZONE: OK / WARNING / CRITICAL)
+// =============================================================================
+// Toggle switches (controllable from web UI)
+bool alertBeepEnabled = true;
+bool alertLedEnabled = true;
+bool alertRangeEnabled = true; // continuous range monitoring
+
+// Configurable safe ranges
+float alertCadenceMin = 70.0f;
+float alertCadenceMax = 150.0f;
+float alertStabilityMin = 50.0f;
+float alertClearanceMin = 0.02f; // 2cm minimum foot lift
+
+// Three-zone boundaries (Warning zone sits between OK and Critical)
+const float CADENCE_OK_MIN = 90.0f;
+const float CADENCE_OK_MAX = 130.0f;
+const float STABILITY_OK_MIN = 80.0f;
+const float CLEARANCE_OK_MIN = 0.02f; // 2cm
+const float CLEARANCE_WARN_MIN = 0.01f; // 1cm
+
+// Zone state: 0=OK, 1=Warning, 2=Critical
+int alertZone = 0;
+String alertZoneStr = "ok";
+
+// Range alert state
+bool rangeAlertActive = false;
+String rangeAlertReason = "";
+unsigned long lastRangeAlertTime = 0;
+const unsigned long RANGE_ALERT_COOLDOWN_OK = 3000;   // 3s when returning to OK
+const unsigned long RANGE_ALERT_COOLDOWN_WARN = 3000;  // 3s for warning beeps
+const unsigned long RANGE_ALERT_COOLDOWN_CRIT = 2000;  // 2s for critical beeps
+
+// LED state for non-blocking blink
+bool ledAlertState = false;
+unsigned long lastLedToggle = 0;
+*/
+// --- Non-blocking alert beeps (single tone per alert — no delay()) ---
+// IMPORTANT: delay() blocks server.handleClient(), causing web UI timeouts.
+// Each alert type uses a distinct single tone (frequency + duration) for audible differentiation.
+void playAlertBeep(const char *alertType) {
+  if (!alertBeepEnabled) return;
+
+  if (strcmp(alertType, "cad_low") == 0) {
+    M5.Speaker.tone(2000, 150);       // Low cadence: mid-high 2kHz, 150ms
+  } else if (strcmp(alertType, "cad_high") == 0) {
+    M5.Speaker.tone(2500, 100);       // High cadence: higher 2.5kHz, short 100ms
+  } else if (strcmp(alertType, "stability") == 0) {
+    M5.Speaker.tone(800, 200);        // Stability: low 800Hz, longer 200ms
+  } else if (strcmp(alertType, "clearance") == 0) {
+    M5.Speaker.tone(1800, 120);       // Clearance: sharp 1.8kHz, 120ms
+  } else if (strcmp(alertType, "back_ok") == 0) {
+    M5.Speaker.tone(2400, 100);       // Back to OK: bright high chirp
+  } else if (strcmp(alertType, "warn") == 0) {
+    M5.Speaker.tone(1500, 100);       // Generic warning: 1.5kHz, 100ms
+  }
+}
+
+// Determine the current alert zone and trigger appropriate feedback
+void checkRangeAlerts() {
+  if (!alertRangeEnabled || !isCalibrated || stepCount < 3)
+    return;
+
+  unsigned long cooldown = (alertZone == 2) ? RANGE_ALERT_COOLDOWN_CRIT
+                         : (alertZone == 1) ? RANGE_ALERT_COOLDOWN_WARN
+                         : RANGE_ALERT_COOLDOWN_OK;
+  if (millis() - lastRangeAlertTime < cooldown)
+    return;
+
+  // --- Determine zone per metric ---
+  int newZone = 0; // Start at OK
+  String reason = "";
+
+  // Cadence check (only if walking)
+  if (currentCadence > 0) {
+    if (currentCadence < alertCadenceMin || currentCadence > alertCadenceMax) {
+      // Critical
+      newZone = 2;
+      reason = currentCadence < alertCadenceMin ? "Cadence low" : "Cadence high";
+    } else if (currentCadence < CADENCE_OK_MIN || currentCadence > CADENCE_OK_MAX) {
+      // Warning (between user limit and OK zone)
+      if (newZone < 1) {
+        newZone = 1;
+        reason = currentCadence < CADENCE_OK_MIN ? "Cadence borderline" : "Cadence fast";
+      }
+    }
+  }
+
+  // Stability check
+  if (stabilityIndex > 0 && stabilityIndex < alertStabilityMin) {
+    newZone = 2;
+    reason = "Unstable gait";
+  } else if (stabilityIndex > 0 && stabilityIndex < STABILITY_OK_MIN && newZone < 1) {
+    newZone = 1;
+    reason = "Stability borderline";
+  }
+
+  // Clearance check (only during swing)
+  if (!isStance && pos.z > 0) {
+    if (pos.z < CLEARANCE_WARN_MIN) {
+      newZone = 2;
+      reason = "Low clearance";
+    } else if (pos.z < CLEARANCE_OK_MIN && newZone < 1) {
+      newZone = 1;
+      reason = "Clearance borderline";
+    }
+  }
+
+  // --- Update zone state ---
+  int prevZone = alertZone;
+  alertZone = newZone;
+  alertZoneStr = (newZone == 2) ? "critical" : (newZone == 1) ? "warning" : "ok";
+
+  if (newZone >= 1) {
+    rangeAlertActive = true;
+    rangeAlertReason = reason;
+    lastRangeAlertTime = millis();
+
+    // Play distinct beep based on reason
+    if (newZone == 2) {
+      // Critical: distinct sound per metric
+      if (reason == "Cadence low") playAlertBeep("cad_low");
+      else if (reason == "Cadence high") playAlertBeep("cad_high");
+      else if (reason == "Unstable gait") playAlertBeep("stability");
+      else if (reason == "Low clearance") playAlertBeep("clearance");
+      else playAlertBeep("warn");
+    } else {
+      // Warning: single short beep
+      playAlertBeep("warn");
+    }
+    showToast(reason, 2000);
+  } else if (newZone == 0 && prevZone >= 1) {
+    // Transition back to OK
+    rangeAlertActive = false;
+    rangeAlertReason = "";
+    playAlertBeep("back_ok");
+  }
+}
+
+// Visual alert indicator — uses display status bar instead of GPIO LED
+// (GPIO 10 is an SPI flash pin on the ESP32-PICO-V3-02 in the Plus 2)
+void updateAlertLed() {
+  // Alert state is tracked via alertZone / ledAlertState for the status bar
+  // and web UI to read. No hardware LED on the Plus 2.
+  if (!alertLedEnabled) {
+    ledAlertState = false;
+    return;
+  }
+
+  if (alertZone == 2 || gaitAbnormal) {
+    if (millis() - lastLedToggle > 125) {
+      ledAlertState = !ledAlertState;
+      lastLedToggle = millis();
+    }
+  } else if (alertZone == 1) {
+    if (millis() - lastLedToggle > 250) {
+      ledAlertState = !ledAlertState;
+      lastLedToggle = millis();
+    }
+  } else if (isCalibrated && stepCount > 0) {
+    ledAlertState = true; // Steady on = OK
+  } else {
+    ledAlertState = false;
+  }
+}
 
 // =============================================================================
 // AUTO-CALIBRATION
@@ -495,22 +704,24 @@ void checkAutoCalibration() {
 // ABNORMALITY ALERT (PHASE 3)
 // =============================================================================
 void triggerAbnormalAlert() {
-  // Flash red LED (M5StickC Plus 2 builtin LED on GPIO10)
-  pinMode(10, OUTPUT);
-  for (int i = 0; i < 3; i++) {
-    digitalWrite(10, HIGH);
-    delay(100);
-    digitalWrite(10, LOW);
-    delay(100);
+  // LED feedback is now handled by updateAlertLed() in the main loop
+  // (zone-based blink rates: 4Hz critical blink when gaitAbnormal=true)
+
+  // Beep using speaker — use distinct sound based on the detected anomaly
+  if (alertBeepEnabled) {
+    if (abnormalReason == "Irregular rhythm" || abnormalReason == "Shuffling gait" || abnormalReason == "Rushing gait") {
+      playAlertBeep("cad_low");
+    } else if (abnormalReason == "Inconsistent lift") {
+      playAlertBeep("clearance");
+    } else if (abnormalReason == "Uneven stride") {
+      playAlertBeep("stability");
+    } else {
+      M5.Speaker.tone(2000, 200);  // Single non-blocking tone
+    }
   }
 
-  // Beep using speaker
-  M5.Speaker.tone(2000, 200); // 2kHz for 200ms
-  delay(250);
-  M5.Speaker.tone(2000, 200); // Double beep
-
   // Show toast on device screen
-  showToast("⚠ " + abnormalReason, 2000);
+  showToast("! " + abnormalReason, 2000);
 }
 
 // =============================================================================
@@ -698,27 +909,31 @@ void ZUPT_INS_Update(float dt) {
 // JSON API
 // =============================================================================
 void getStatusJSON() {
-  String json = "{";
-  json += "\"recording\":" + String(isRecording ? "true" : "false") + ",";
-  json += "\"step_count\":" + String((int)stepCount) + ",";
-  json += "\"dist_m\":" + String(distanceTotal, 2) + ",";
-  json += "\"cad\":" + String(currentCadence, 1) + ",";
-  json += "\"stab\":" + String(stabilityIndex, 1) + ",";
-  json += "\"px\":" + String(pos.x, 3) + ",";
-  json += "\"py\":" + String(pos.y, 3) + ",";
-  json += "\"pz\":" + String(pos.z, 3) + ",";
-  json += "\"phase\":" + String(isStance ? 0 : 1) + ",";
-  json += "\"pitch\":" + String(pitch, 1) + ",";
-  json += "\"roll\":" + String(roll, 1) + ",";
-  json += "\"yaw\":" + String(yaw, 1) + ",";
-  json += "\"is_stat\":" + String(isStance ? "true" : "false") + ",";
-  json += "\"battery_pct\":" + String(batteryPercent) + ",";
-  json += "\"battery_v\":" + String(batteryVoltage, 2) + ",";
-  json += "\"calibrated\":" + String(isCalibrated ? "true" : "false") + ",";
-  json += "\"abnormal\":" + String(gaitAbnormal ? "true" : "false") + ",";
-  json += "\"abnormal_reason\":\"" + abnormalReason + "\"";
-  json += "}";
-  server.send(200, "application/json", json);
+  char buf[896];
+  snprintf(buf, sizeof(buf),
+    "{\"recording\":%s,\"step_count\":%d,\"dist_m\":%.2f,"
+    "\"cad\":%.1f,\"stab\":%.1f,"
+    "\"px\":%.3f,\"py\":%.3f,\"pz\":%.3f,"
+    "\"phase\":%d,\"pitch\":%.1f,\"roll\":%.1f,\"yaw\":%.1f,"
+    "\"is_stat\":%s,\"battery_pct\":%d,\"battery_v\":%.2f,"
+    "\"calibrated\":%s,\"abnormal\":%s,"
+    "\"abnormal_reason\":\"%s\","
+    "\"range_alert\":%s,\"range_reason\":\"%s\","
+    "\"zone\":\"%s\","
+    "\"beep_on\":%s,\"led_on\":%s,\"range_on\":%s}",
+    isRecording ? "true" : "false", (int)stepCount, distanceTotal,
+    currentCadence, stabilityIndex,
+    pos.x, pos.y, pos.z,
+    isStance ? 0 : 1, pitch, roll, yaw,
+    isStance ? "true" : "false", batteryPercent, batteryVoltage,
+    isCalibrated ? "true" : "false", gaitAbnormal ? "true" : "false",
+    abnormalReason.c_str(),
+    rangeAlertActive ? "true" : "false", rangeAlertReason.c_str(),
+    alertZoneStr.c_str(),
+    alertBeepEnabled ? "true" : "false",
+    alertLedEnabled ? "true" : "false",
+    alertRangeEnabled ? "true" : "false");
+  server.send(200, "application/json", buf);
 }
 
 // =============================================================================
@@ -885,7 +1100,7 @@ public:
     case 1: // Sleep Mode — deep sleep, wake on power button (GPIO37)
       showToast("Sleeping...");
       delay(1500);
-      M5.Power.deepSleep();
+      prepareForSleep();
       break;
     case 2: // Power Off
       showToast("Shutting down...");
@@ -994,6 +1209,12 @@ public:
       playSound("recstart");
       // Enhanced CSV header with metadata
       logFile = LittleFS.open("/log_" + String(millis()) + ".csv", FILE_WRITE);
+      if (!logFile) {
+        isRecording = false;
+        playSound("error");
+        showToast("File open failed!", 2000);
+        return;
+      }
       logFile.println("# GaitOS V2.0 - Ankle Mounted");
       logFile.println("# Sample Rate: 100Hz");
       logFile.println("# ZUPT Threshold: " + String(ZUPT_THRESH_DPS) +
@@ -1380,6 +1601,7 @@ public:
         }
         file = root.openNextFile();
       }
+      root.close();
     }
     sel = 0;
   }
@@ -1831,6 +2053,7 @@ void handleLogsList() {
       }
       file = root.openNextFile();
     }
+    root.close();
   }
   output += "]";
   server.send(200, "application/json", output);
@@ -1845,6 +2068,10 @@ bool handleFileRead(String path) {
 
   // URL decode common characters
   path.replace("%20", " ");
+  path.replace("%23", "#");
+  path.replace("%25", "%");
+  path.replace("%2B", "+");
+  path.replace("%3D", "=");
 
   if (LittleFS.exists(path)) {
     File file = LittleFS.open(path, "r");
@@ -1860,6 +2087,8 @@ bool handleFileRead(String path) {
     server.sendHeader("Content-Disposition",
                       "attachment; filename=\"" + filename + "\"");
     server.sendHeader("Content-Length", String(file.size()));
+    server.sendHeader("Cache-Control", "no-cache");
+    server.sendHeader("Connection", "close");
     server.streamFile(file, "application/octet-stream");
     file.close();
     return true;
@@ -1895,6 +2124,7 @@ void checkStorageAndCleanup() {
         }
         file = root.openNextFile();
       }
+      root.close();
     }
 
     // Only delete if we have more than 5 files
@@ -1907,45 +2137,97 @@ void checkStorageAndCleanup() {
   }
 }
 
+// PHASE 4: Deep Sleep tracking
+unsigned long lastActivityTime = 0;
+float lastStepCount = 0;
+const unsigned long SLEEP_TIMEOUT = 300000; // 5 minutes in ms
+
+void prepareForSleep() {
+  // stop anything active
+  if (logFile) {
+    logFile.close();
+  }
+
+  server.stop();
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_OFF);
+
+  // wait until power button is fully released
+  unsigned long t0 = millis();
+  while (M5.BtnPWR.isPressed() && (millis() - t0 < 3000)) {
+    M5.update();
+    delay(10);
+  }
+
+  // configure wake only right before sleep
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, LOW);
+
+  delay(50);
+  esp_deep_sleep_start();
+}
+
+// Boot step display — regular function, no lambda, no captures
+void bootStep(int n, const char *label) {
+  canvas.fillRect(0, 115, 240, 20, UI_BG);
+  canvas.setTextColor(0xFD20); // Orange
+  canvas.setTextSize(1);
+  char buf[32];
+  snprintf(buf, sizeof(buf), "Step %d: %s", n, label);
+  canvas.drawCenterString(buf, 120, 118, 1);
+  canvas.pushSprite(0, 0);
+  delay(300);
+  Serial.printf("[BOOT] step %d: %s  heap=%d\n", n, label, ESP.getFreeHeap());
+}
+
 void setup() {
+  Serial.begin(115200);
+  delay(100);
+  Serial.println("[BOOT] start");
+  Serial.printf("[BOOT] Reset reason: %d\n", (int)esp_reset_reason());
+  Serial.printf("[BOOT] Free heap: %d\n", ESP.getFreeHeap());
+
+  // --- Hardware init ---
   auto cfg = M5.config();
   M5.begin(cfg);
   M5.Display.setRotation(3);
-  M5.Display.setBrightness(50); // Power saving: 30% brightness
-
-  // PHASE 3.5: Power button long-press handled in loop() (no API needed)
+  M5.Display.setBrightness(50);
+  Serial.println("[BOOT] M5 ok");
 
   canvas.createSprite(M5.Display.width(), M5.Display.height());
 
-  // Show splash screen during initialization
+  // Splash screen
   showSplashScreen();
+  Serial.println("[BOOT] splash done");
 
-  LittleFS.begin(true);
+  // --- Step-by-step init with on-screen progress ---
+  bootStep(1, "Storage");
+  if (!LittleFS.begin(true)) {
+    Serial.println("[BOOT] LittleFS FAIL");
+  } else {
+    Serial.println("[BOOT] LittleFS ok");
+  }
 
-  // Initialize Madgwick filter
-  madgwick.begin(0.1f); // Beta tuned for ankle mounting
-
-  // Initialize ZUPT detector
+  bootStep(2, "Algorithms");
+  madgwick.begin(0.1f);
   zuptDetector.init();
-
-  // Initialize anomaly detector (PHASE 3)
   anomalyDetector.init();
 
-  // PHASE 4: Enable Watchdog Timer (60s timeout) - ESP-IDF v5.x
-  esp_task_wdt_config_t wdt_config = {
-      .timeout_ms = 60000, .idle_core_mask = 0, .trigger_panic = true};
-  esp_task_wdt_init(&wdt_config);
-  esp_task_wdt_add(NULL);
+  bootStep(3, "Init");
 
+  bootStep(4, "WiFi");
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
+  delay(100); // Let WiFi settle
+
+  bootStep(5, "Routes");
   server.on("/", HTTP_GET,
             []() { server.send_P(200, "text/html", index_html); });
+
   server.on("/api/status", HTTP_GET, []() { getStatusJSON(); });
 
-  // Tuning API
   server.on("/api/config", HTTP_POST, handleConfig);
 
-  // Calibration API - POST resets, GET returns status
+  // Calibration
   server.on("/api/calibrate", HTTP_POST, []() {
     pos = {0, 0, 0};
     vel = {0, 0, 0};
@@ -1957,43 +2239,94 @@ void setup() {
     isCalibrated = true;
     madgwick.reset();
     showToast("Zeroed!", 1000);
-    String json = "{\"success\":true,\"calibrated\":true,\"gyroBias\":[";
-    json += String(gyroBiasX, 4) + "," + String(gyroBiasY, 4) + "," +
-            String(gyroBiasZ, 4);
-    json += "],\"accBias\":[";
-    json += String(accBiasX, 4) + "," + String(accBiasY, 4) + "," +
-            String(accBiasZ, 4);
-    json += "]}";
+    char json[192];
+    snprintf(json, sizeof(json),
+      "{\"success\":true,\"calibrated\":true,\"gyroBias\":[%.4f,%.4f,%.4f],\"accBias\":[%.4f,%.4f,%.4f]}",
+      gyroBiasX, gyroBiasY, gyroBiasZ, accBiasX, accBiasY, accBiasZ);
     server.send(200, "application/json", json);
   });
 
   server.on("/api/calibration", HTTP_GET, []() {
-    String json = "{\"calibrated\":";
-    json += isCalibrated ? "true" : "false";
-    json += ",\"gyroBias\":[";
-    json += String(gyroBiasX, 4) + "," + String(gyroBiasY, 4) + "," +
-            String(gyroBiasZ, 4);
-    json += "],\"accBias\":[";
-    json += String(accBiasX, 4) + "," + String(accBiasY, 4) + "," +
-            String(accBiasZ, 4);
-    json += "],\"battery\":{\"percent\":" + String(batteryPercent);
-    json += ",\"voltage\":" + String(M5.Power.getBatteryVoltage() / 1000.0f, 2);
-    json += ",\"charging\":" + String(M5.Power.isCharging() ? "true" : "false");
-    json += "}}";
+    char json[256];
+    snprintf(json, sizeof(json),
+      "{\"calibrated\":%s,\"gyroBias\":[%.4f,%.4f,%.4f],\"accBias\":[%.4f,%.4f,%.4f],"
+      "\"battery\":{\"percent\":%d,\"voltage\":%.2f,\"charging\":%s}}",
+      isCalibrated ? "true" : "false",
+      gyroBiasX, gyroBiasY, gyroBiasZ, accBiasX, accBiasY, accBiasZ,
+      batteryPercent, M5.Power.getBatteryVoltage() / 1000.0f,
+      M5.Power.isCharging() ? "true" : "false");
     server.send(200, "application/json", json);
   });
 
-  // Recording API with session metadata support
+  // Alerts API
+  server.on("/api/alerts", HTTP_POST, []() {
+    String body = server.arg("plain");
+    if (body.indexOf("\"beep\"") >= 0)
+      alertBeepEnabled = body.indexOf("\"beep\":true") >= 0;
+    if (body.indexOf("\"led\"") >= 0)
+      alertLedEnabled = body.indexOf("\"led\":true") >= 0;
+    if (body.indexOf("\"range\"") >= 0)
+      alertRangeEnabled = body.indexOf("\"range\":true") >= 0;
+
+    int idx;
+    idx = body.indexOf("\"cad_min\"");
+    if (idx >= 0) {
+      int vs = body.indexOf(":", idx) + 1;
+      int ve = body.indexOf(",", vs); if (ve == -1) ve = body.indexOf("}", vs);
+      alertCadenceMin = body.substring(vs, ve).toFloat();
+    }
+    idx = body.indexOf("\"cad_max\"");
+    if (idx >= 0) {
+      int vs = body.indexOf(":", idx) + 1;
+      int ve = body.indexOf(",", vs); if (ve == -1) ve = body.indexOf("}", vs);
+      alertCadenceMax = body.substring(vs, ve).toFloat();
+    }
+    idx = body.indexOf("\"stab_min\"");
+    if (idx >= 0) {
+      int vs = body.indexOf(":", idx) + 1;
+      int ve = body.indexOf(",", vs); if (ve == -1) ve = body.indexOf("}", vs);
+      alertStabilityMin = body.substring(vs, ve).toFloat();
+    }
+    idx = body.indexOf("\"clear_min\"");
+    if (idx >= 0) {
+      int vs = body.indexOf(":", idx) + 1;
+      int ve = body.indexOf(",", vs); if (ve == -1) ve = body.indexOf("}", vs);
+      alertClearanceMin = body.substring(vs, ve).toFloat();
+    }
+    showToast("Alerts updated", 1000);
+    char resp[256];
+    snprintf(resp, sizeof(resp),
+      "{\"beep\":%s,\"led\":%s,\"range\":%s,"
+      "\"cad_min\":%.0f,\"cad_max\":%.0f,\"stab_min\":%.0f,\"clear_min\":%.3f}",
+      alertBeepEnabled ? "true" : "false",
+      alertLedEnabled ? "true" : "false",
+      alertRangeEnabled ? "true" : "false",
+      alertCadenceMin, alertCadenceMax, alertStabilityMin, alertClearanceMin);
+    server.send(200, "application/json", resp);
+  });
+
+  server.on("/api/alerts", HTTP_GET, []() {
+    char resp[256];
+    snprintf(resp, sizeof(resp),
+      "{\"beep\":%s,\"led\":%s,\"range\":%s,"
+      "\"cad_min\":%.0f,\"cad_max\":%.0f,\"stab_min\":%.0f,\"clear_min\":%.3f,"
+      "\"alert_active\":%s,\"alert_reason\":\"%s\"}",
+      alertBeepEnabled ? "true" : "false",
+      alertLedEnabled ? "true" : "false",
+      alertRangeEnabled ? "true" : "false",
+      alertCadenceMin, alertCadenceMax, alertStabilityMin, alertClearanceMin,
+      rangeAlertActive ? "true" : "false", rangeAlertReason.c_str());
+    server.send(200, "application/json", resp);
+  });
+
+  // Recording API
   server.on("/api/record/start", HTTP_POST, []() {
     String body = server.arg("plain");
-
-    // Parse JSON metadata (simple extraction, no library needed)
     String sessionName = extractJSON(body, "name");
     String patientId = extractJSON(body, "patientId");
     String sessionType = extractJSON(body, "type");
     String notes = extractJSON(body, "notes");
 
-    // Generate filename
     String filename = "/";
     if (sessionName.length() > 0) {
       filename += sessionName;
@@ -2002,22 +2335,20 @@ void setup() {
     }
     filename += ".csv";
 
-    // PHASE 4: Check storage and cleanup if needed
     checkStorageAndCleanup();
 
-    isRecording = true;
     logFile = LittleFS.open(filename, FILE_WRITE);
+    if (!logFile) {
+      server.send(500, "text/plain", "Failed to open file");
+      return;
+    }
+    isRecording = true;
 
-    // Enhanced CSV header with session metadata
     logFile.println("# GaitOS V2.0 - Ankle Mounted");
-    if (sessionName.length() > 0)
-      logFile.println("# Session: " + sessionName);
-    if (patientId.length() > 0)
-      logFile.println("# Patient ID: " + patientId);
-    if (sessionType.length() > 0)
-      logFile.println("# Type: " + sessionType);
-    if (notes.length() > 0)
-      logFile.println("# Notes: " + notes);
+    if (sessionName.length() > 0) logFile.println("# Session: " + sessionName);
+    if (patientId.length() > 0)   logFile.println("# Patient ID: " + patientId);
+    if (sessionType.length() > 0) logFile.println("# Type: " + sessionType);
+    if (notes.length() > 0)       logFile.println("# Notes: " + notes);
     logFile.println("# Start Time: " + String(millis()) + " ms");
     logFile.println("# Sample Rate: 100Hz");
     logFile.println("#");
@@ -2025,55 +2356,55 @@ void setup() {
                     "px,py,pz,phase,cadence,stability,abnormal");
     server.send(200);
   });
+
   server.on("/api/record/stop", HTTP_POST, []() {
     isRecording = false;
-    if (logFile)
-      logFile.close();
+    if (logFile) logFile.close();
     server.send(200);
   });
 
-  // NEW: Logs & Downloads
   server.on("/api/logs", HTTP_GET, handleLogsList);
 
-  // DELETE ALL FILES API - server-side reliable deletion
+  // Delete all files
   server.on("/api/deleteall", HTTP_POST, []() {
+    if (isRecording) {
+      isRecording = false;
+      if (logFile) logFile.close();
+    }
     File root = LittleFS.open("/");
     int deleted = 0;
     if (root) {
       File file = root.openNextFile();
       while (file) {
         String name = String(file.name());
-        if (!name.startsWith("/")) {
-          name = "/" + name;
-        }
-        file.close();               // Close before deleting
-        file = root.openNextFile(); // Get next before deleting current
-
+        if (!name.startsWith("/")) name = "/" + name;
+        file.close();
+        file = root.openNextFile();
         if (name.endsWith(".csv")) {
-          Serial.println("Deleting: " + name);
           if (LittleFS.remove(name)) {
             deleted++;
           } else {
-            // Try without leading slash
             String altName = name.substring(1);
-            if (LittleFS.remove(altName)) {
-              deleted++;
-            }
+            if (LittleFS.remove(altName)) deleted++;
           }
         }
       }
+      root.close();
     }
     showToast("Deleted " + String(deleted) + " files", 2000);
     server.send(200, "text/plain", "Deleted " + String(deleted) + " files");
   });
 
-  // FORMAT STORAGE API - completely wipe LittleFS
+  // Format storage
   server.on("/api/format", HTTP_POST, []() {
+    if (isRecording) {
+      isRecording = false;
+      if (logFile) logFile.close();
+    }
     Serial.println("Formatting LittleFS...");
     LittleFS.end();
     bool success = LittleFS.format();
     LittleFS.begin(true);
-
     if (success) {
       showToast("Storage formatted!", 2000);
       server.send(200, "text/plain", "Storage formatted successfully");
@@ -2083,48 +2414,29 @@ void setup() {
     }
   });
 
-  // DELETE API moved to onNotFound handler to support dynamic paths
-
+  // Dynamic routing: DELETE + file downloads
   server.onNotFound([]() {
     String uri = server.uri();
 
-    // Handle DELETE requests for file management (PHASE 3.5 - FIXED V2)
+    // DELETE /api/delete/{filename}
     if (server.method() == HTTP_DELETE && uri.startsWith("/api/delete/")) {
-      String filename = uri.substring(12); // Remove "/api/delete/"
-
-      // URL decode the filename (handles %20, etc.)
+      String filename = uri.substring(12);
       filename.replace("%20", " ");
       filename.replace("%2F", "/");
       filename.replace("%5C", "\\");
+      if (!filename.startsWith("/")) filename = "/" + filename;
 
-      // Ensure filename starts with /
-      if (!filename.startsWith("/")) {
-        filename = "/" + filename;
-      }
-
-      // Debug output
-      Serial.println("DELETE Request - Filename: " + filename);
-
-      // Check if file exists
       if (LittleFS.exists(filename)) {
         bool success = LittleFS.remove(filename);
-        Serial.println("Delete result: " + String(success ? "OK" : "FAIL"));
         if (success) {
           server.send(200, "text/plain", "Deleted: " + filename);
         } else {
           server.send(500, "text/plain", "Failed to delete");
         }
       } else {
-        // Try without the leading slash (some LittleFS versions differ)
-        String altFilename = filename.substring(1);
-        Serial.println("File not found, trying: " + altFilename);
-        if (LittleFS.exists(altFilename)) {
-          bool success = LittleFS.remove(altFilename);
-          if (success) {
-            server.send(200, "text/plain", "Deleted: " + altFilename);
-          } else {
-            server.send(500, "text/plain", "Failed to delete");
-          }
+        String alt = filename.substring(1);
+        if (LittleFS.exists(alt) && LittleFS.remove(alt)) {
+          server.send(200, "text/plain", "Deleted: " + alt);
         } else {
           server.send(404, "text/plain", "File not found: " + filename);
         }
@@ -2132,53 +2444,53 @@ void setup() {
       return;
     }
 
-    // Handle file downloads (GET)
+    // GET — file download fallback
     if (!handleFileRead(uri)) {
       server.send(404, "text/plain", "404: Not Found");
     }
   });
 
+  bootStep(6, "Server");
   server.begin();
 
-  // Zero Sensors Init
+  bootStep(7, "Ready");
+  // --- Initial state ---
   pos = {0, 0, 0};
   vel = {0, 0, 0};
-
-  // PHASE 4: Configure wake from deep sleep on power button
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, LOW);
+  lastSampleTime = millis();
+  lastActivityTime = millis();
 
   showToast("GaitOS V2.0", 2000);
+  Serial.printf("[BOOT] setup done  heap=%d\n", ESP.getFreeHeap());
 }
 
 // Power button long-press tracking
 unsigned long btnPwrPressTime = 0;
 bool btnPwrLongPress = false;
 
-// PHASE 4: Deep Sleep tracking
-unsigned long lastActivityTime = 0;
-float lastStepCount = 0;
-const unsigned long SLEEP_TIMEOUT = 300000; // 5 minutes in ms
-
 void loop() {
   M5.update();
   server.handleClient();
+  yield(); // let system tasks run
 
-  // PHASE 4: Reset watchdog timer every loop
-  esp_task_wdt_reset();
-
-  // PHASE 4: Track activity for deep sleep
+  // Track activity for deep sleep
   if (stepCount > lastStepCount || isRecording) {
     lastActivityTime = millis();
     lastStepCount = stepCount;
   }
 
-  // PHASE 4: Enter deep sleep after 5min inactivity
+  // Deep sleep after 5 min inactivity
   if (millis() - lastActivityTime > SLEEP_TIMEOUT) {
-    showToast("Going to sleep...", 2000);
-    delay(2000);
-    M5.Power.deepSleep();
+    showToast("Sleeping...", 1500);
+    canvas.fillScreen(UI_BG);
+    canvas.setTextColor(UI_MUTED);
+    canvas.drawCenterString("Sleeping...", 120, 60, 2);
+    canvas.pushSprite(0, 0);
+    delay(1500);
+    prepareForSleep();
   }
 
+  // --- Sensor sampling at 100Hz ---
   unsigned long now = millis();
   if (now - lastSampleTime >= SAMPLE_INTERVAL_MS) {
     float dt = (now - lastSampleTime) / 1000.0f;
@@ -2191,36 +2503,38 @@ void loop() {
     // Auto-calibration check
     checkAutoCalibration();
 
-    // Apply gyro bias correction
+    // Apply bias correction
     gyroX -= gyroBiasX;
     gyroY -= gyroBiasY;
     gyroZ -= gyroBiasZ;
-
-    // Apply accel bias correction
     accX -= accBiasX;
     accY -= accBiasY;
     accZ -= accBiasZ;
 
-    // Update Madgwick filter (gyro in rad/s)
+    // Madgwick orientation filter
     madgwick.update(gyroX * DEG_TO_RAD, gyroY * DEG_TO_RAD, gyroZ * DEG_TO_RAD,
                     accX, accY, accZ, dt);
     madgwick.getQuaternion(&q0, &q1, &q2, &q3);
     madgwick.getEuler(&roll, &pitch, &yaw);
 
-    // ZUPT-INS Update
+    // ZUPT-INS navigation
     ZUPT_INS_Update(dt);
 
-    // Update scope history buffers at sensor rate (not at draw rate)
+    // Scope history (only when viewing scope app)
     if (currentApp == &scope) scope.updateHistory();
 
-    // Battery check
+    // Battery
     updateBattery();
+
+    // Alert system
+    checkRangeAlerts();
+    updateAlertLed();
 
     // Data recording
     if (isRecording && logFile) {
       logFile.printf(
-          "%lu,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.4f,%.1f,%.1f,%."
-          "1f,%.3f,%.3f,%.3f,%.4f,%.4f,%.4f,%d,%.1f,%.1f,%d\n",
+          "%lu,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.4f,%.1f,%.1f,"
+          "%.1f,%.3f,%.3f,%.3f,%.4f,%.4f,%.4f,%d,%.1f,%.1f,%d\n",
           now, accX, accY, accZ, gyroX, gyroY, gyroZ, q0, q1, q2, q3, roll,
           pitch, yaw, vel.x, vel.y, vel.z, pos.x, pos.y, pos.z,
           isStance ? 0 : 1, currentCadence, stabilityIndex,
@@ -2228,9 +2542,8 @@ void loop() {
     }
   }
 
-  // App Input
-
-  // Power button long-press detection (2s hold for power menu from anywhere)
+  // --- Button input ---
+  // Power button long-press (2s hold → power menu from anywhere)
   if (M5.BtnPWR.isPressed() && !btnPwrLongPress) {
     if (btnPwrPressTime == 0) {
       btnPwrPressTime = millis();
@@ -2243,15 +2556,12 @@ void loop() {
   }
 
   if (M5.BtnPWR.wasReleased()) {
-    // Short press action
     if (!btnPwrLongPress && btnPwrPressTime > 0) {
       if (currentApp == &launcher) {
-        // On home screen: open power menu
         currentApp = &powerMenu;
         playSound("select");
         currentApp->onOpen();
       } else {
-        // Elsewhere: go back to launcher
         currentApp = &launcher;
         playSound("click");
         currentApp->onOpen();
@@ -2261,14 +2571,13 @@ void loop() {
     btnPwrLongPress = false;
   }
 
-  if (M5.BtnA.wasPressed())
-    currentApp->onBtnA();
-  if (M5.BtnB.wasPressed())
-    currentApp->onBtnB();
+  if (M5.BtnA.wasPressed()) currentApp->onBtnA();
+  if (M5.BtnB.wasPressed()) currentApp->onBtnB();
 
-  // Draw
+  // --- Draw ---
   currentApp->onDraw(canvas);
-  // Toast overlay — truncate long messages so they don't overflow the 120px box
+
+  // Toast overlay
   if (millis() < toastEndTime) {
     String displayMsg = toastMsg;
     if (displayMsg.length() > 20) displayMsg = displayMsg.substring(0, 19) + "~";
@@ -2276,5 +2585,6 @@ void loop() {
     canvas.setTextColor(UI_TEXT);
     canvas.drawCenterString(displayMsg, 120, 110, 1);
   }
+
   canvas.pushSprite(0, 0);
 }

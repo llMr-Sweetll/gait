@@ -17,6 +17,7 @@
 
 #include <Arduino.h>
 #include <math.h>
+#include <stdint.h>
 
 class MadgwickFilter {
 private:
@@ -34,9 +35,10 @@ private:
   float invSqrt(float x) {
     float halfx = 0.5f * x;
     float y = x;
-    long i = *(long *)&y;
+    int32_t i;
+    memcpy(&i, &y, sizeof(i));
     i = 0x5f3759df - (i >> 1);
-    y = *(float *)&i;
+    memcpy(&y, &i, sizeof(y));
     y = y * (1.5f - (halfx * y * y));
     return y;
   }
